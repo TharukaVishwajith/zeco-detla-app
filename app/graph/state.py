@@ -13,8 +13,8 @@ class SupportGraphState(TypedDict, total=False):
     ticket_response: dict[str, Any]
     current_phase: str
     response_text: str
+    system_message: str
     citations: list[str]
     next_action: str
     safety_flags: list[str]
     errors: NotRequired[list[str]]
-

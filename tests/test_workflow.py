@@ -20,8 +20,17 @@ from app.services.validation_service import ValidationService
 
 class FakeLLMClient:
     def classify_intent(self, message, device_info=None):
-        if "ticket" in message.lower():
+        lowered = message.lower()
+        missing_info = []
+        system_message = None
+        has_domain_context = any(term in lowered for term in ("inverter", "battery", "pv", "monitor", "error", "fault"))
+        is_brief = 0 < len(lowered.split()) <= 4
+        if "ticket" in lowered:
             intent = IntentType.escalate
+        elif is_brief and not has_domain_context:
+            intent = IntentType.general_question
+            missing_info.append("issue_or_question_details")
+            system_message = f"I can help with Delta technical support. Please share technical details for: {message}"
         else:
             intent = IntentType.troubleshoot
         return IntentClassification(
@@ -30,7 +39,8 @@ class FakeLLMClient:
             error_code="E031" if "E031" in message else None,
             model_number=device_info.model_number if device_info else None,
             risk_flags=[],
-            missing_info=[],
+            missing_info=missing_info,
+            system_message=system_message,
         )
 
     def generate_troubleshooting_response(self, message, retrieved_docs, classification):
@@ -124,7 +134,17 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "ticket_creation")
         self.assertEqual(state["ticket_response"]["status"], "mock_created")
 
+    def test_greeting_message_returns_friendly_domain_redirect(self):
+        request = ChatMessageRequest(message="Hi")
+        state = self.workflow.invoke({"request": request.model_dump(mode="json")})
+        self.assertEqual(state["current_phase"], "intake")
+        self.assertEqual(state["next_action"], "ask_question")
+        self.assertEqual(state["citations"], [])
+        self.assertIn("technical details for: Hi", state["response_text"])
+        self.assertIn("system_message", state)
+        self.assertNotIn("retrieved_docs", state)
+        self.assertNotIn("ticket_response", state)
+
 
 if __name__ == "__main__":
     unittest.main()
-

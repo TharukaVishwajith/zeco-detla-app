@@ -36,6 +36,7 @@ class IntentClassification(BaseModel):
     model_number: str | None = None
     risk_flags: list[str] = Field(default_factory=list)
     missing_info: list[str] = Field(default_factory=list)
+    system_message: str | None = None
 
 
 class SafetyAssessment(BaseModel):
@@ -91,6 +92,7 @@ class ChatMessageResponse(BaseModel):
     intent: IntentType
     device_type: DeviceType
     response_text: str
+    system_message: str | None = None
     citations: list[str] = Field(default_factory=list)
     next_action: TroubleshootingAction
     missing_fields: list[str] = Field(default_factory=list)
@@ -114,4 +116,3 @@ class HealthResponse(BaseModel):
     llm_configured: bool
     opensearch_configured: bool
     ticket_api_configured: bool
-

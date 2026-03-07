@@ -34,7 +34,14 @@ def build_workflow(dependencies: WorkflowDependencies):
     graph.add_node("ticket_creation", build_ticket_creation_node(dependencies.ticket_service))
 
     graph.add_edge(START, "intake")
-    graph.add_edge("intake", "safety_guardrails")
+    graph.add_conditional_edges(
+        "intake",
+        _route_after_intake,
+        {
+            "safety_guardrails": "safety_guardrails",
+            "end": END,
+        },
+    )
 
     graph.add_conditional_edges(
         "safety_guardrails",
@@ -75,6 +82,12 @@ def _route_after_safety(state: SupportGraphState) -> str:
     return "retrieval"
 
 
+def _route_after_intake(state: SupportGraphState) -> str:
+    if state.get("system_message"):
+        return "end"
+    return "safety_guardrails"
+
+
 def _route_after_troubleshooting(state: SupportGraphState) -> str:
     next_action = state.get("next_action")
     if next_action in {"collect_evidence", "escalate"}:
@@ -86,4 +99,3 @@ def _route_after_evidence(state: SupportGraphState) -> str:
     if state.get("missing_fields"):
         return "end"
     return "ticket_creation"
-

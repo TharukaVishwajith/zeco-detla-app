@@ -18,5 +18,5 @@ class RetrievalService:
             filters["model"] = classification.model_number
         if classification.error_code:
             filters["error_code"] = classification.error_code
-        return self.adapter.search(query=query, size=top_k, filters=filters)
+        return self.adapter.search(query=query, size=top_k)
 

@@ -11,12 +11,19 @@ Return JSON with this schema:
   "error_code": "string | null",
   "model_number": "string | null",
   "risk_flags": ["string"],
-  "missing_info": ["string"]
+  "missing_info": ["string"],
+  "system_message": "string | null"
 }
 
 Rules:
 - Mark `escalate` for safety hazards, direct requests for technician escalation, or explicit ticket requests.
+- Mark greetings, pleasantries, and lightweight social openers (for example: "hi", "hello", "good morning", "thanks")
+  as `general_question` when no concrete support issue/question is provided.
+- For greeting/pleasantry-only messages, leave `error_code` and `model_number` as `null`.
+- For greeting/pleasantry-only messages, include `"issue_or_question_details"` in `missing_info`.
+- When `missing_info` contains `"issue_or_question_details"`, generate a short friendly `system_message` that matches
+  the user's wording and asks for a Delta domain-specific technical question (issue, alarm/error text, model number).
+- For `troubleshoot` or `escalate`, set `system_message` to `null`.
 - Extract `error_code` only if present in the message.
 - Do not invent device information.
 - Return JSON only.
-

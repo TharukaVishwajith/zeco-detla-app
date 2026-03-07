@@ -46,7 +46,7 @@ class Settings:
         default_factory=lambda: float(os.getenv("TICKET_API_TIMEOUT_SECONDS", "10"))
     )
 
-    retrieval_top_k: int = field(default_factory=lambda: int(os.getenv("RETRIEVAL_TOP_K", "5")))
+    retrieval_top_k: int = field(default_factory=lambda: int(os.getenv("RETRIEVAL_TOP_K", "10")))
 
 
 @lru_cache(maxsize=1)

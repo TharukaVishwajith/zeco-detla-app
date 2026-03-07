@@ -24,6 +24,7 @@ async def chat_message(payload: ChatMessageRequest, workflow=Depends(get_workflo
         intent=classification.intent,
         device_type=classification.device_type,
         response_text=state.get("response_text", ""),
+        system_message=state.get("system_message"),
         citations=state.get("citations", []),
         next_action=state.get("next_action", "ask_question"),
         missing_fields=state.get("missing_fields", []),
@@ -31,4 +32,3 @@ async def chat_message(payload: ChatMessageRequest, workflow=Depends(get_workflo
         ticket=ticket,
         retrieved_documents=state.get("retrieved_docs", []),
     )
-

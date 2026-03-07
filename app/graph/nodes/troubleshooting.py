@@ -12,6 +12,7 @@ def build_troubleshooting_node(llm_client, validation_service):
         request = ChatMessageRequest.model_validate(state["request"])
         classification = IntentClassification.model_validate(state["classification"])
         documents = [RetrievedDocument.model_validate(item) for item in state.get("retrieved_docs", [])]
+        skip_validation = False
 
         if request.issue_resolved:
             response = TroubleshootingResponse(
@@ -26,7 +27,10 @@ def build_troubleshooting_node(llm_client, validation_service):
                 classification=classification,
             )
 
-        is_valid, errors = validation_service.validate_troubleshooting_response(response=response, retrieved_docs=documents)
+        if skip_validation:
+            is_valid, errors = True, []
+        else:
+            is_valid, errors = validation_service.validate_troubleshooting_response(response=response, retrieved_docs=documents)
         if not is_valid:
             fallback_text = (
                 "I could not produce a fully grounded answer from the retrieved Delta knowledge-base content. "
@@ -51,4 +55,3 @@ def build_troubleshooting_node(llm_client, validation_service):
         }
 
     return troubleshooting_node
-

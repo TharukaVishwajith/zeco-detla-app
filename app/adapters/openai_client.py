@@ -78,10 +78,6 @@ class OpenAIClient:
         return response.data[0].embedding
 
     def classify_intent(self, message: str, device_info: DeviceInfo | None = None) -> IntentClassification:
-        # fallback = self._heuristic_classification(message=message, device_info=device_info)
-        # if not self.client:
-        #     return fallback
-
         prompt = self._load_prompt("intent_prompt.txt")
         user_prompt = (
             f"User message:\n{message}\n\n"
@@ -178,11 +174,6 @@ class OpenAIClient:
     def _heuristic_classification(self, message: str, device_info: DeviceInfo | None) -> IntentClassification:
         lowered = message.lower()
         risk_flags = [term for term in SAFETY_TERMS if term in lowered]
-        intent = IntentType.troubleshoot
-        if any(term in lowered for term in ("ticket", "escalate", "support case", "technician")):
-            intent = IntentType.escalate
-        elif any(term in lowered for term in ("how do", "what is", "where can", "manual")):
-            intent = IntentType.general_question
 
         device_type = DeviceType.unknown
         if "inverter" in lowered:
@@ -198,11 +189,29 @@ class OpenAIClient:
 
         error_match = re.search(r"\b([A-Z]{1,4}[- ]?\d{2,5})\b", message)
         model_number = device_info.model_number if device_info else None
+        has_domain_context = self._has_domain_context(
+            lowered_message=lowered,
+            device_type=device_type,
+            model_number=model_number,
+            has_error_code=bool(error_match),
+        )
+
+        intent = IntentType.troubleshoot
+        if any(term in lowered for term in ("ticket", "escalate", "support case", "technician")):
+            intent = IntentType.escalate
+        elif any(term in lowered for term in ("how do", "what is", "where can", "manual")) or "?" in message:
+            intent = IntentType.general_question
+        elif not has_domain_context and self._is_brief_message(lowered):
+            intent = IntentType.general_question
+
         missing_info = []
         if not model_number:
             missing_info.append("model_number")
         if not error_match:
             missing_info.append("error_code")
+        if intent == IntentType.general_question and not has_domain_context:
+            missing_info.append("issue_or_question_details")
+        system_message = self._heuristic_system_message(message) if "issue_or_question_details" in missing_info else None
 
         return IntentClassification(
             intent=intent,
@@ -211,6 +220,52 @@ class OpenAIClient:
             model_number=model_number,
             risk_flags=risk_flags,
             missing_info=missing_info,
+            system_message=system_message,
+        )
+
+    def _is_brief_message(self, lowered_message: str) -> bool:
+        words = re.findall(r"[a-z0-9]+", lowered_message)
+        return 0 < len(words) <= 4
+
+    def _has_domain_context(
+        self,
+        lowered_message: str,
+        device_type: DeviceType,
+        model_number: str | None,
+        has_error_code: bool,
+    ) -> bool:
+        if device_type != DeviceType.unknown or model_number or has_error_code:
+            return True
+        domain_terms = (
+            "inverter",
+            "battery",
+            "pv",
+            "panel",
+            "solar",
+            "monitor",
+            "gateway",
+            "meter",
+            "fault",
+            "alarm",
+            "error",
+            "trip",
+            "shutdown",
+        )
+        return any(term in lowered_message for term in domain_terms)
+
+    def _heuristic_system_message(self, user_message: str) -> str:
+        snippet = re.sub(r"\s+", " ", user_message).strip()
+        if len(snippet) > 80:
+            snippet = f"{snippet[:77].rstrip()}..."
+        if snippet:
+            return (
+                f"Thanks for your message about \"{snippet}\". "
+                "I can help with Delta technical support questions, so please share your issue, alarm/error text, "
+                "or model number."
+            )
+        return (
+            "I can help with Delta technical support questions. "
+            "Please share your issue, alarm/error text, or model number."
         )
 
     def _load_prompt(self, filename: str) -> str:
