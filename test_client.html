@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zeco Delta Chat Test Client</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef3f8;
+      --panel: #f8fbfd;
+      --shell: #ffffff;
+      --border: #d6dde8;
+      --text: #142033;
+      --muted: #5f6f82;
+      --accent: #0a6a78;
+      --accent-strong: #094f59;
+      --assistant: #e6f4f6;
+      --user: #10233f;
+      --user-text: #f7fbff;
+      --shadow: 0 18px 50px rgba(20, 32, 51, 0.08);
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top left, rgba(10, 106, 120, 0.12), transparent 30%),
+        linear-gradient(180deg, #f3f7fb 0%, #e9eef5 100%);
+      color: var(--text);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 320px minmax(0, 1fr);
+      gap: 20px;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .panel,
+    .chat-shell {
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    .panel {
+      padding: 18px;
+      align-self: start;
+      position: sticky;
+      top: 20px;
+    }
+
+    .chat-shell {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: calc(100vh - 40px);
+      overflow: hidden;
+    }
+
+    .header {
+      padding: 20px 22px 16px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(135deg, rgba(10, 106, 120, 0.08), rgba(16, 35, 63, 0.04));
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    .header p,
+    .panel-intro,
+    .hint,
+    .meta {
+      color: var(--muted);
+    }
+
+    .panel h2 {
+      margin-bottom: 6px;
+      font-size: 18px;
+    }
+
+    .panel-intro {
+      margin-bottom: 18px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .fields {
+      display: grid;
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .field.two {
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .field.two > div {
+      display: grid;
+      gap: 6px;
+    }
+
+    label {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    input,
+    textarea,
+    button {
+      font: inherit;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 12px;
+      color: var(--text);
+      background: #fff;
+    }
+
+    textarea {
+      min-height: 78px;
+      resize: vertical;
+    }
+
+    .checkboxes {
+      display: grid;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .checkbox {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      font-size: 14px;
+      color: var(--text);
+    }
+
+    .checkbox input {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 11px 16px;
+      cursor: pointer;
+    }
+
+    .primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .secondary {
+      background: #dde5ee;
+      color: var(--text);
+    }
+
+    .chat-log {
+      padding: 24px 22px;
+      overflow: auto;
+      background:
+        radial-gradient(circle at top right, rgba(10, 106, 120, 0.06), transparent 28%),
+        linear-gradient(180deg, #fcfdff 0%, #f2f6fb 100%);
+    }
+
+    .empty {
+      max-width: 520px;
+      margin: 32px auto;
+      padding: 20px;
+      border: 1px dashed var(--border);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.65);
+      text-align: center;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .message {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+
+    .message.user {
+      justify-items: end;
+    }
+
+    .message.assistant {
+      justify-items: start;
+    }
+
+    .bubble {
+      max-width: min(760px, 88%);
+      padding: 14px 16px;
+      border-radius: 18px;
+      white-space: pre-wrap;
+      line-height: 1.55;
+    }
+
+    .message.user .bubble {
+      background: var(--user);
+      color: var(--user-text);
+      border-bottom-right-radius: 6px;
+    }
+
+    .message.assistant .bubble {
+      background: var(--assistant);
+      color: var(--text);
+      border-bottom-left-radius: 6px;
+      border: 1px solid rgba(10, 106, 120, 0.12);
+    }
+
+    .message .meta {
+      font-size: 12px;
+    }
+
+    .detail-card {
+      max-width: min(760px, 88%);
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 12px 14px;
+      font-size: 13px;
+    }
+
+    .detail-card h3 {
+      margin-bottom: 8px;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #edf2f8;
+      color: var(--text);
+    }
+
+    .composer {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      padding: 18px 22px 22px;
+      border-top: 1px solid var(--border);
+      background: var(--shell);
+    }
+
+    .composer textarea {
+      min-height: 64px;
+      max-height: 180px;
+    }
+
+    .composer-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      justify-content: end;
+    }
+
+    pre {
+      margin: 0;
+      padding: 12px;
+      overflow: auto;
+      border-radius: 12px;
+      background: #101b2d;
+      color: #dce8ff;
+      font-size: 12px;
+    }
+
+    @media (max-width: 980px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .panel {
+        position: static;
+      }
+
+      .chat-shell {
+        min-height: auto;
+      }
+    }
+
+    @media (max-width: 640px) {
+      body {
+        padding: 0;
+      }
+
+      .layout {
+        gap: 12px;
+        padding: 12px;
+      }
+
+      .chat-log,
+      .composer,
+      .header,
+      .panel {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+
+      .composer {
+        grid-template-columns: 1fr;
+      }
+
+      .composer-actions button {
+        width: 100%;
+      }
+
+      .bubble,
+      .detail-card {
+        max-width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="layout">
+    <aside class="panel">
+      <h2>Session Setup</h2>
+      <p class="panel-intro">These fields are merged into each <code>POST /chat/message</code> request so you can simulate a realistic troubleshooting session.</p>
+
+      <div class="fields">
+        <div class="field">
+          <label for="baseUrl">Base URL</label>
+          <input id="baseUrl" />
+        </div>
+
+        <div class="field two">
+          <div>
+            <label for="firstName">First Name</label>
+            <input id="firstName" value="Test" />
+          </div>
+          <div>
+            <label for="lastName">Last Name</label>
+            <input id="lastName" value="User" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" value="test@example.com" />
+        </div>
+
+        <div class="field">
+          <label for="phone">Phone</label>
+          <input id="phone" placeholder="Optional" />
+        </div>
+
+        <div class="checkboxes">
+          <label class="checkbox">
+            <input id="requestTicket" type="checkbox" />
+            <span>Request ticket creation in chat flow</span>
+          </label>
+          <label class="checkbox">
+            <input id="issueResolved" type="checkbox" />
+            <span>Mark issue resolved</span>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button class="secondary" id="healthButton" type="button">Check Health</button>
+          <button class="secondary" id="resetButton" type="button">Reset Chat</button>
+        </div>
+      </div>
+    </aside>
+
+    <section class="chat-shell">
+      <div class="header">
+        <h1>Zeco Delta Chat Tester</h1>
+        <p>Chat-style frontend for exercising the troubleshooting workflow over <code>/chat/message</code>.</p>
+      </div>
+
+      <div class="chat-log" id="chatLog">
+        <div class="empty" id="emptyState">
+          Start by sending a user message. The page will build the request payload from the sidebar fields and render the assistant response as a chat conversation.
+        </div>
+      </div>
+
+      <form class="composer" id="chatForm">
+        <textarea id="messageInput" placeholder="Describe the device issue here..." required></textarea>
+        <div class="composer-actions">
+          <button class="primary" id="sendButton" type="submit">Send Message</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    const baseUrlInput = document.getElementById("baseUrl");
+    const healthButton = document.getElementById("healthButton");
+    const resetButton = document.getElementById("resetButton");
+    const chatForm = document.getElementById("chatForm");
+    const messageInput = document.getElementById("messageInput");
+    const chatLog = document.getElementById("chatLog");
+    const emptyState = document.getElementById("emptyState");
+    const sendButton = document.getElementById("sendButton");
+
+    let requestId = null;
+
+    function defaultBaseUrl() {
+      if (window.location.protocol === "http:" || window.location.protocol === "https:") {
+        return window.location.origin;
+      }
+      return "http://127.0.0.1:8000";
+    }
+    baseUrlInput.value = defaultBaseUrl();
+
+    function cleanValue(value) {
+      return value.trim();
+    }
+
+    function buildPayload(message) {
+      const firstName = cleanValue(document.getElementById("firstName").value);
+      const lastName = cleanValue(document.getElementById("lastName").value);
+      const fullName = `${firstName} ${lastName}`.trim();
+
+      const payload = {
+        message,
+        request_id: requestId,
+        customer_info: {
+          firstName: firstName || null,
+          lastName: lastName || null,
+          name: fullName || null,
+          email: cleanValue(document.getElementById("email").value) || null,
+          phone: cleanValue(document.getElementById("phone").value) || null
+        },
+        device_info: {
+          device_type: "unknown"
+        },
+        evidence_pack: {},
+        request_ticket: document.getElementById("requestTicket").checked,
+        issue_resolved: document.getElementById("issueResolved").checked
+      };
+
+      return payload;
+    }
+
+    function removeEmptyState() {
+      if (emptyState) {
+        emptyState.remove();
+      }
+    }
+
+    function scrollChatToBottom() {
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    function createMessage(role, text, metaText) {
+      const wrapper = document.createElement("div");
+      wrapper.className = `message ${role}`;
+
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      bubble.textContent = text;
+      wrapper.appendChild(bubble);
+
+      if (metaText) {
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent = metaText;
+        wrapper.appendChild(meta);
+      }
+
+      chatLog.appendChild(wrapper);
+      scrollChatToBottom();
+      return wrapper;
+    }
+
+    function createDetailCard(title, contentNode) {
+      const card = document.createElement("div");
+      card.className = "detail-card";
+
+      const heading = document.createElement("h3");
+      heading.textContent = title;
+      card.appendChild(heading);
+      card.appendChild(contentNode);
+
+      chatLog.appendChild(card);
+      scrollChatToBottom();
+    }
+
+    function chipList(items) {
+      const wrap = document.createElement("div");
+      wrap.className = "chips";
+
+      if (!items.length) {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = "None";
+        wrap.appendChild(chip);
+        return wrap;
+      }
+
+      items.forEach((item) => {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = item;
+        wrap.appendChild(chip);
+      });
+
+      return wrap;
+    }
+
+    function addJsonCard(title, value) {
+      const pre = document.createElement("pre");
+      pre.textContent = JSON.stringify(value, null, 2);
+      createDetailCard(title, pre);
+    }
+
+    async function callApi(path, options = {}) {
+      const url = `${baseUrlInput.value.replace(/\/$/, "")}${path}`;
+      const response = await fetch(url, { referrerPolicy: "no-referrer", ...options });
+      const text = await response.text();
+      let body = text;
+
+      try {
+        body = JSON.parse(text);
+      } catch (_) {
+      }
+
+      if (!response.ok) {
+        throw new Error(typeof body === "string" ? body : JSON.stringify(body, null, 2));
+      }
+
+      return body;
+    }
+
+    async function handleHealthCheck() {
+      removeEmptyState();
+      createMessage("assistant", "Checking API health...", "System");
+
+      try {
+        const body = await callApi("/health");
+        addJsonCard("Health Response", body);
+      } catch (error) {
+        createMessage("assistant", `Health check failed:\n${error.message}`, "Error");
+      }
+    }
+
+    function renderAssistantResponse(body) {
+      requestId = body.request_id || requestId;
+
+      const meta = `intent: ${body.intent} | device: ${body.device_type} | next_action: ${body.next_action}`;
+      createMessage("assistant", body.response_text || "(empty response)", meta);
+
+      if (body.missing_fields && body.missing_fields.length) {
+        createDetailCard("Missing Fields", chipList(body.missing_fields));
+      }
+
+      if (body.safety_flags && body.safety_flags.length) {
+        createDetailCard("Safety Flags", chipList(body.safety_flags));
+      }
+
+      if (body.citations && body.citations.length) {
+        createDetailCard("Citations", chipList(body.citations));
+      }
+
+      if (body.ticket) {
+        addJsonCard("Ticket Response", body.ticket);
+      }
+
+      if (body.retrieved_documents && body.retrieved_documents.length) {
+        addJsonCard("Retrieved Documents", body.retrieved_documents);
+      }
+    }
+
+    async function handleSubmit(event) {
+      event.preventDefault();
+
+      const message = messageInput.value.trim();
+      if (!message) {
+        return;
+      }
+
+      removeEmptyState();
+      createMessage("user", message, requestId ? `request_id: ${requestId}` : "new session");
+      messageInput.value = "";
+      sendButton.disabled = true;
+      sendButton.textContent = "Sending...";
+
+      const payload = buildPayload(message);
+
+      try {
+        const body = await callApi("/chat/message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        renderAssistantResponse(body);
+      } catch (error) {
+        createMessage("assistant", `Request failed:\n${error.message}`, "Error");
+        addJsonCard("Failed Payload", payload);
+      } finally {
+        sendButton.disabled = false;
+        sendButton.textContent = "Send Message";
+        messageInput.focus();
+      }
+    }
+
+    function resetChat() {
+      requestId = null;
+      chatLog.innerHTML = "";
+      chatLog.appendChild(emptyState);
+      messageInput.value = "";
+      document.getElementById("requestTicket").checked = false;
+      document.getElementById("issueResolved").checked = false;
+      messageInput.focus();
+    }
+
+    healthButton.addEventListener("click", handleHealthCheck);
+    resetButton.addEventListener("click", resetChat);
+    chatForm.addEventListener("submit", handleSubmit);
+  </script>
+</body>
+</html>
