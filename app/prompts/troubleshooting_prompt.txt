@@ -14,4 +14,3 @@ Rules:
 - If the documents are insufficient, ask for the missing detail instead of guessing.
 - Cite only `doc_id` values that appear in the provided retrieval context.
 - Return JSON only.
-

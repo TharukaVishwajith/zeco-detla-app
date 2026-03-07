@@ -3,6 +3,8 @@ import unittest
 from app.graph.workflow import WorkflowDependencies, build_workflow
 from app.models.conversation import (
     ChatMessageRequest,
+    ConversationMessage,
+    ConversationRole,
     DeviceInfo,
     DeviceType,
     EvidencePack,
@@ -19,11 +21,18 @@ from app.services.validation_service import ValidationService
 
 
 class FakeLLMClient:
-    def classify_intent(self, message, device_info=None):
+    def classify_intent(self, message, device_info=None, history=None):
         lowered = message.lower()
+        user_query = message
+        if history:
+            recent_context = " ".join(item.content for item in history[-2:])
+            user_query = f"{message} | context: {recent_context}"
+        history_text = " ".join(item.content.lower() for item in (history or []))
         missing_info = []
         system_message = None
-        has_domain_context = any(term in lowered for term in ("inverter", "battery", "pv", "monitor", "error", "fault"))
+        has_domain_context = any(
+            term in f"{history_text} {lowered}" for term in ("inverter", "battery", "pv", "monitor", "error", "fault")
+        )
         is_brief = 0 < len(lowered.split()) <= 4
         if "ticket" in lowered:
             intent = IntentType.escalate
@@ -36,6 +45,7 @@ class FakeLLMClient:
         return IntentClassification(
             intent=intent,
             device_type=device_info.device_type if device_info else DeviceType.inverter,
+            user_query=user_query,
             error_code="E031" if "E031" in message else None,
             model_number=device_info.model_number if device_info else None,
             risk_flags=[],
@@ -45,8 +55,13 @@ class FakeLLMClient:
 
     def generate_troubleshooting_response(self, message, retrieved_docs, classification):
         citations = [doc.doc_id for doc in retrieved_docs[:1]]
+        response_text = "Follow the documented restart sequence from the retrieved Delta KB article."
+        if "still the same" in message.lower() and "context:" in message:
+            response_text = (
+                "Based on the prior conversation, continue from the documented restart sequence and share the new fault state."
+            )
         return TroubleshootingResponse(
-            response_text="Follow the documented restart sequence from the retrieved Delta KB article.",
+            response_text=response_text,
             citations=citations,
             next_action=TroubleshootingAction.continue_troubleshooting,
         )
@@ -56,7 +71,13 @@ class FakeLLMClient:
 
 
 class FakeSearchAdapter:
+    def __init__(self):
+        self.last_query = None
+        self.last_filters = None
+
     def search(self, query, size=5, filters=None):
+        self.last_query = query
+        self.last_filters = filters or {}
         return [
             RetrievedDocument(
                 doc_id="doc-1",
@@ -84,9 +105,10 @@ class FakeTicketAdapter:
 
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
+        self.search_adapter = FakeSearchAdapter()
         dependencies = WorkflowDependencies(
             llm_client=FakeLLMClient(),
-            retrieval_service=RetrievalService(FakeSearchAdapter()),
+            retrieval_service=RetrievalService(self.search_adapter),
             validation_service=ValidationService(),
             ticket_service=TicketService(FakeTicketAdapter()),
             retrieval_top_k=5,
@@ -99,6 +121,7 @@ class WorkflowTests(unittest.TestCase):
             device_info=DeviceInfo(device_type=DeviceType.inverter, model_number="M100A"),
         )
         state = self.workflow.invoke({"request": request.model_dump(mode="json")})
+        self.assertEqual(state["user_query"], "My inverter shows E031 after restart")
         self.assertEqual(state["current_phase"], "troubleshooting")
         self.assertEqual(state["next_action"], "continue_troubleshooting")
         self.assertEqual(state["citations"], ["doc-1"])
@@ -142,8 +165,31 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["citations"], [])
         self.assertIn("technical details for: Hi", state["response_text"])
         self.assertIn("system_message", state)
+        self.assertEqual(state["user_query"], "Hi")
         self.assertNotIn("retrieved_docs", state)
         self.assertNotIn("ticket_response", state)
+
+    def test_follow_up_message_uses_prior_history_context(self):
+        request = ChatMessageRequest(message="Still the same after the restart")
+        history = [
+            ConversationMessage(role=ConversationRole.user, content="My inverter shows E031 after restart"),
+            ConversationMessage(
+                role=ConversationRole.assistant,
+                content="Follow the documented restart sequence from the retrieved Delta KB article.",
+            ),
+        ]
+        state = self.workflow.invoke(
+            {
+                "request": request.model_dump(mode="json"),
+                "history": [message.model_dump(mode="json") for message in history],
+            }
+        )
+        self.assertEqual(state["current_phase"], "troubleshooting")
+        self.assertEqual(state["next_action"], "continue_troubleshooting")
+        self.assertIn("prior conversation", state["response_text"])
+        self.assertIn("context:", state["user_query"])
+        self.assertEqual(state.get("history"), [])
+        self.assertIn("My inverter shows E031 after restart", self.search_adapter.last_query)
 
 
 if __name__ == "__main__":

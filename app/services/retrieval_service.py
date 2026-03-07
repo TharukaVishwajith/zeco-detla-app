@@ -11,12 +11,11 @@ class RetrievalService:
         classification: IntentClassification,
         top_k: int,
     ) -> list[RetrievedDocument]:
-        filters = {}
-        if classification.device_type.value != "unknown":
-            filters["product"] = classification.device_type.value
-        if classification.model_number:
-            filters["model"] = classification.model_number
-        if classification.error_code:
-            filters["error_code"] = classification.error_code
-        return self.adapter.search(query=query, size=top_k)
-
+        # filters = {}
+        # if classification.device_type.value != "unknown":
+        #     filters["product"] = classification.device_type.value
+        # if classification.model_number:
+        #     filters["model"] = classification.model_number
+        # if classification.error_code:
+        #     filters["error_code"] = classification.error_code
+        return self.adapter.search(query=query.strip(), size=top_k)

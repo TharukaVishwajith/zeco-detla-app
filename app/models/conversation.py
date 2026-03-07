@@ -21,6 +21,11 @@ class DeviceType(str, Enum):
     unknown = "unknown"
 
 
+class ConversationRole(str, Enum):
+    user = "user"
+    assistant = "assistant"
+
+
 class DeviceInfo(BaseModel):
     device_type: DeviceType = DeviceType.unknown
     model_number: str | None = None
@@ -32,6 +37,7 @@ class DeviceInfo(BaseModel):
 class IntentClassification(BaseModel):
     intent: IntentType
     device_type: DeviceType = DeviceType.unknown
+    user_query: str | None = None
     error_code: str | None = None
     model_number: str | None = None
     risk_flags: list[str] = Field(default_factory=list)
@@ -72,6 +78,19 @@ class TroubleshootingResponse(BaseModel):
     response_text: str
     citations: list[str] = Field(default_factory=list)
     next_action: TroubleshootingAction
+
+
+class ConversationMessage(BaseModel):
+    role: ConversationRole
+    content: str
+    created_at: str | None = None
+    message_id: str | None = None
+    request_id: str | None = None
+    user_id: str | None = None
+    system_message: str | None = None
+    intent: IntentType | None = None
+    citations: list[str] = Field(default_factory=list)
+    next_action: TroubleshootingAction | None = None
 
 
 class ChatMessageRequest(BaseModel):

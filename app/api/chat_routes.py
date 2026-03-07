@@ -12,13 +12,28 @@ def get_workflow(request: Request):
     return request.app.state.workflow
 
 
+def get_conversation_history_service(request: Request):
+    return request.app.state.conversation_history_service
+
+
 @router.post("/message", response_model=ChatMessageResponse)
-async def chat_message(payload: ChatMessageRequest, workflow=Depends(get_workflow)) -> ChatMessageResponse:
+async def chat_message(
+    payload: ChatMessageRequest,
+    workflow=Depends(get_workflow),
+    conversation_history_service=Depends(get_conversation_history_service),
+) -> ChatMessageResponse:
     request_id = payload.request_id or str(uuid4())
-    state = workflow.invoke({"request": payload.model_dump(mode="json")})
+    request_payload = payload.model_copy(update={"request_id": request_id})
+    history = conversation_history_service.load_history(request_id)
+    state = workflow.invoke(
+        {
+            "request": request_payload.model_dump(mode="json"),
+            "history": [message.model_dump(mode="json") for message in history],
+        }
+    )
     classification = IntentClassification.model_validate(state["classification"])
     ticket = TicketResponse.model_validate(state["ticket_response"]) if state.get("ticket_response") else None
-    return ChatMessageResponse(
+    response = ChatMessageResponse(
         request_id=request_id,
         current_phase=state.get("current_phase", "unknown"),
         intent=classification.intent,
@@ -32,3 +47,12 @@ async def chat_message(payload: ChatMessageRequest, workflow=Depends(get_workflo
         ticket=ticket,
         retrieved_documents=state.get("retrieved_docs", []),
     )
+    conversation_history_service.persist_turn(
+        request=request_payload,
+        response_text=response.response_text,
+        classification=classification,
+        citations=response.citations,
+        next_action=response.next_action.value,
+        system_message=response.system_message,
+    )
+    return response

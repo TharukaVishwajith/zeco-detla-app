@@ -47,6 +47,16 @@ class Settings:
     )
 
     retrieval_top_k: int = field(default_factory=lambda: int(os.getenv("RETRIEVAL_TOP_K", "10")))
+    aws_access_key_id: str | None = field(default_factory=lambda: os.getenv("AWS_ACCESS_KEY_ID"))
+    aws_secret_access_key: str | None = field(default_factory=lambda: os.getenv("AWS_SECRET_ACCESS_KEY"))
+    aws_session_token: str | None = field(default_factory=lambda: os.getenv("AWS_SESSION_TOKEN"))
+    dynamodb_table_name: str | None = field(default_factory=lambda: os.getenv("DYNAMODB_TABLE_NAME"))
+    dynamodb_region: str = field(
+        default_factory=lambda: os.getenv("DYNAMODB_REGION") or os.getenv("AWS_REGION") or os.getenv("OPENSEARCH_REGION", "us-east-1")
+    )
+    conversation_history_max_messages: int = field(
+        default_factory=lambda: int(os.getenv("CONVERSATION_HISTORY_MAX_MESSAGES", "12"))
+    )
 
 
 @lru_cache(maxsize=1)

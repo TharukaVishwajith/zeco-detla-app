@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from app.adapters.dynamodb_conversation_repository import DynamoConversationRepository
 from app.adapters.elastic_client import OpenSearchHybridClient
 from app.adapters.openai_client import OpenAIClient
 from app.adapters.ticket_api_client import TicketApiClient
@@ -14,6 +15,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.graph.workflow import WorkflowDependencies, build_workflow
 from app.models.conversation import HealthResponse
+from app.services.conversation_history_service import ConversationHistoryService
 from app.services.retrieval_service import RetrievalService
 from app.services.ticket_service import TicketService
 from app.services.validation_service import ValidationService
@@ -54,6 +56,16 @@ ticket_service = TicketService(
     )
 )
 validation_service = ValidationService()
+conversation_history_service = ConversationHistoryService(
+    repository=DynamoConversationRepository(
+        table_name=settings.dynamodb_table_name,
+        region_name=settings.dynamodb_region,
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+        aws_session_token=settings.aws_session_token,
+    ),
+    max_messages=settings.conversation_history_max_messages,
+)
 workflow = build_workflow(
     WorkflowDependencies(
         llm_client=openai_client,
@@ -76,6 +88,7 @@ app.add_middleware(
 )
 app.state.workflow = workflow
 app.state.ticket_service = ticket_service
+app.state.conversation_history_service = conversation_history_service
 
 app.include_router(chat_router)
 app.include_router(ticket_router)

@@ -13,6 +13,7 @@ from app.core.agent_models import (
     build_agent_model_config,
 )
 from app.models.conversation import (
+    ConversationMessage,
     DeviceInfo,
     DeviceType,
     IntentClassification,
@@ -77,10 +78,19 @@ class OpenAIClient:
         response = self.client.embeddings.create(**kwargs)
         return response.data[0].embedding
 
-    def classify_intent(self, message: str, device_info: DeviceInfo | None = None) -> IntentClassification:
+    def classify_intent(
+        self,
+        message: str,
+        device_info: DeviceInfo | None = None,
+        history: list[ConversationMessage] | None = None,
+    ) -> IntentClassification:
+        history = history or []
+        normalized_message = re.sub(r"\s+", " ", message).strip()
         prompt = self._load_prompt("intent_prompt.txt")
+        history_block = self._format_history(history)
         user_prompt = (
-            f"User message:\n{message}\n\n"
+            f"Conversation history (oldest first):\n{history_block}\n\n"
+            f"Current user message (highest priority):\n{normalized_message}\n\n"
             f"Known device info:\n{device_info.model_dump_json() if device_info else '{}'}\n\n"
             "Return JSON only."
         )
@@ -93,10 +103,16 @@ class OpenAIClient:
             )
             if payload is None:
                 raise RuntimeError("LangChain agent unavailable for intent classification")
-            return IntentClassification.model_validate(payload)
+            classification = IntentClassification.model_validate(payload)
+            classification.user_query = self._prioritize_current_message(
+                current_message=normalized_message,
+                user_query=classification.user_query,
+                history=history,
+            )
+            return classification
         except Exception as exc:  # pragma: no cover - network/API failure path
             logger.warning("OpenAI classification failed, using heuristic fallback: %s", exc)
-            fallback = self._heuristic_classification(message=message, device_info=device_info)
+            fallback = self._heuristic_classification(message=normalized_message, device_info=device_info, history=history)
             if not self.client:
                 return fallback
             return fallback
@@ -171,26 +187,38 @@ class OpenAIClient:
             next_action=TroubleshootingAction.continue_troubleshooting,
         )
 
-    def _heuristic_classification(self, message: str, device_info: DeviceInfo | None) -> IntentClassification:
+    def _heuristic_classification(
+        self,
+        message: str,
+        device_info: DeviceInfo | None,
+        history: list[ConversationMessage] | None = None,
+    ) -> IntentClassification:
+        history = history or []
         lowered = message.lower()
-        risk_flags = [term for term in SAFETY_TERMS if term in lowered]
+        recent_history = [item.content for item in history[-6:] if item.content]
+        combined_text = "\n".join([*recent_history, message])
+        combined_lowered = combined_text.lower()
+        risk_flags = [term for term in SAFETY_TERMS if term in combined_lowered]
 
         device_type = DeviceType.unknown
-        if "inverter" in lowered:
+        if "inverter" in combined_lowered:
             device_type = DeviceType.inverter
-        elif "battery" in lowered:
+        elif "battery" in combined_lowered:
             device_type = DeviceType.battery
-        elif "pv" in lowered or "panel" in lowered or "solar" in lowered:
+        elif "pv" in combined_lowered or "panel" in combined_lowered or "solar" in combined_lowered:
             device_type = DeviceType.pv
-        elif "monitor" in lowered or "gateway" in lowered or "meter" in lowered:
+        elif "monitor" in combined_lowered or "gateway" in combined_lowered or "meter" in combined_lowered:
             device_type = DeviceType.monitoring
         elif device_info:
             device_type = device_info.device_type
 
-        error_match = re.search(r"\b([A-Z]{1,4}[- ]?\d{2,5})\b", message)
+        error_match = re.search(r"\b([A-Z]{1,4}[- ]?\d{2,5})\b", message) or re.search(
+            r"\b([A-Z]{1,4}[- ]?\d{2,5})\b",
+            combined_text,
+        )
         model_number = device_info.model_number if device_info else None
         has_domain_context = self._has_domain_context(
-            lowered_message=lowered,
+            lowered_message=combined_lowered,
             device_type=device_type,
             model_number=model_number,
             has_error_code=bool(error_match),
@@ -212,10 +240,12 @@ class OpenAIClient:
         if intent == IntentType.general_question and not has_domain_context:
             missing_info.append("issue_or_question_details")
         system_message = self._heuristic_system_message(message) if "issue_or_question_details" in missing_info else None
+        user_query = self._heuristic_user_query(message, history)
 
         return IntentClassification(
             intent=intent,
             device_type=device_type,
+            user_query=user_query,
             error_code=error_match.group(1).replace(" ", "-") if error_match else None,
             model_number=model_number,
             risk_flags=risk_flags,
@@ -267,6 +297,52 @@ class OpenAIClient:
             "I can help with Delta technical support questions. "
             "Please share your issue, alarm/error text, or model number."
         )
+
+    def _heuristic_user_query(self, current_message: str, history: list[ConversationMessage]) -> str:
+        if not history:
+            return current_message
+
+        context_lines: list[str] = []
+        for message in history:
+            content = re.sub(r"\s+", " ", message.content).strip()
+            if not content:
+                continue
+            context_lines.append(f"{message.role.value}: {content}")
+
+        if not context_lines:
+            return current_message
+        return f"{current_message} | context: {' ; '.join(context_lines)}"
+
+    def _prioritize_current_message(
+        self,
+        current_message: str,
+        user_query: str | None,
+        history: list[ConversationMessage],
+    ) -> str:
+        if not current_message:
+            return ""
+
+        normalized_current = re.sub(r"\s+", " ", current_message).strip()
+        normalized_user_query = re.sub(r"\s+", " ", (user_query or "")).strip()
+        if not normalized_user_query:
+            return self._heuristic_user_query(normalized_current, history)
+
+        if normalized_current.lower() in normalized_user_query.lower():
+            return normalized_user_query
+
+        return f"{normalized_current} | context: {normalized_user_query}"
+
+    def _format_history(self, history: list[ConversationMessage]) -> str:
+        if not history:
+            return "(none)"
+
+        lines = []
+        for message in history:
+            content = re.sub(r"\s+", " ", message.content).strip()
+            if not content:
+                continue
+            lines.append(f"{message.role.value.upper()}: {content}")
+        return "\n".join(lines) if lines else "(none)"
 
     def _load_prompt(self, filename: str) -> str:
         return (PROMPTS_DIR / filename).read_text(encoding="utf-8").strip()

@@ -11,6 +11,7 @@ def build_troubleshooting_node(llm_client, validation_service):
     def troubleshooting_node(state: dict) -> dict:
         request = ChatMessageRequest.model_validate(state["request"])
         classification = IntentClassification.model_validate(state["classification"])
+        user_query = state.get("user_query") or request.message
         documents = [RetrievedDocument.model_validate(item) for item in state.get("retrieved_docs", [])]
         skip_validation = False
 
@@ -22,7 +23,7 @@ def build_troubleshooting_node(llm_client, validation_service):
             )
         else:
             response = llm_client.generate_troubleshooting_response(
-                message=request.message,
+                message=user_query,
                 retrieved_docs=documents,
                 classification=classification,
             )
