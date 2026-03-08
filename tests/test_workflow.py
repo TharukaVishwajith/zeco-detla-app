@@ -69,14 +69,26 @@ class FakeLLMClient:
         elif is_brief and not has_domain_context:
             intent = IntentType.general_question
             missing_info.append("issue_or_question_details")
-            system_message = f"I can help with Delta technical support. Please share technical details for: {message}"
+            system_message = (
+                "## Delta Support\n\n"
+                f"Please share the technical details for: {message}\n\n"
+                "- Issue description\n"
+                "- Alarm or error text\n"
+                "- Model number"
+            )
         else:
             intent = IntentType.troubleshoot
         if support_scope_status == SupportScopeStatus.unknown and intent != IntentType.general_question:
+            labels = {
+                "site_type": "Site type",
+                "system_size_kw": "System size (kW)",
+                "user_role": "User role",
+                "ownership_verified": "Ownership or service responsibility confirmed",
+            }
             system_message = (
-                "Before troubleshooting, please confirm the following site eligibility details: "
-                + ", ".join(missing_scope_fields)
-                + "."
+                "## Site Eligibility Check\n\n"
+                "Before troubleshooting, please confirm:\n"
+                + "\n".join(f"- {labels[field_name]}" for field_name in missing_scope_fields)
             )
         return IntentClassification(
             intent=intent,
@@ -184,7 +196,7 @@ class WorkflowTests(unittest.TestCase):
         state = self.workflow.invoke({"request": request.model_dump(mode="json")})
         self.assertEqual(state["current_phase"], "intake")
         self.assertEqual(state["next_action"], "ask_question")
-        self.assertIn("site eligibility details", state["response_text"])
+        self.assertIn("## Site Eligibility Check", state["response_text"])
         self.assertEqual(state["missing_scope_fields"], ["site_type", "system_size_kw", "user_role", "ownership_verified"])
 
     def test_safety_path_collects_missing_evidence(self):
@@ -268,6 +280,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "intake")
         self.assertEqual(state["next_action"], "ask_question")
         self.assertEqual(state["citations"], [])
+        self.assertIn("## Delta Support", state["response_text"])
         self.assertIn("technical details for: Hi", state["response_text"])
         self.assertIn("system_message", state)
         self.assertEqual(state["user_query"], "Hi")

@@ -15,7 +15,7 @@ Return JSON with this schema:
   "risk_flags": ["string"],
   "missing_info": ["string"],
   "support_scope_status": "supported | unsupported | unknown",
-  "unsupported_reason": "site_capacity_exceeded | industrial_site | utility_scale_or_embedded_network | ownership_unverifiable | null",
+  "unsupported_reason": "site_capacity_exceeded | industrial_site | utility_scale_or_embedded_network | null",
   "missing_scope_fields": ["string"],
   "system_message": "string | null"
 }
@@ -32,14 +32,18 @@ Rules:
 - For greeting/pleasantry-only messages, include `"issue_or_question_details"` in `missing_info`.
 - When `missing_info` contains `"issue_or_question_details"`, generate a short friendly `system_message` that matches
   the user's wording and asks for a Delta domain-specific technical question (issue, alarm/error text, model number).
+- Any user-facing `system_message` must be valid Markdown.
+- Never expose internal field names like `system_size_kw` in a user-facing `system_message`.
+  Use natural labels such as "System size (kW)".
 - For `troubleshoot` or `escalate`, set `system_message` to `null`.
 - Extract `error_code` only if present in the message.
 - Do not invent device information.
 - Use the evidence pack and conversation to classify support scope:
-  - `unsupported` for sites > 30 kW, industrial/major commercial sites, utility-scale or embedded-network systems, or unverifiable ownership/responsibility
+  - `unsupported` for sites > 30 kW, industrial/major commercial sites, utility-scale or embedded-network systems
   - `unknown` when the message does not provide enough site scope data yet
   - `supported` only when the site fits the documented scope
 - When `support_scope_status` is `unknown`, populate only the minimum missing scope fields needed to decide support eligibility.
+  If you include a scope-related `system_message`, format it as Markdown with a short heading and bullet list.
 - Build `user_query` from the current message plus all relevant context from message history.
 - Give highest priority to the current user message in `user_query`.
 - Return JSON only.

@@ -1,10 +1,14 @@
 from app.models.conversation import ChatMessageRequest, ConversationMessage, SupportScopeStatus
-from app.models.evidence import EvidencePack
+from app.models.evidence import EvidencePack, format_markdown_field_list
 
 
 def _build_scope_question(missing_scope_fields: list[str]) -> str:
-    ordered = ", ".join(missing_scope_fields) if missing_scope_fields else "site_type, system_size_kw, user_role, ownership_verified"
-    return f"Before troubleshooting, please confirm the following site eligibility details: {ordered}."
+    fields = missing_scope_fields or ["site_type", "system_size_kw", "user_role", "ownership_verified"]
+    return (
+        "## Site Eligibility Check\n\n"
+        "Before troubleshooting, please confirm:\n"
+        f"{format_markdown_field_list(fields)}"
+    )
 
 
 def _latest_evidence_snapshot(history: list[ConversationMessage]) -> EvidencePack:

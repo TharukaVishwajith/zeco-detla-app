@@ -346,13 +346,19 @@ class OpenAIClient:
             snippet = f"{snippet[:77].rstrip()}..."
         if snippet:
             return (
-                f"Thanks for your message about \"{snippet}\". "
-                "I can help with Delta technical support questions, so please share your issue, alarm/error text, "
-                "or model number."
+                "## Delta Support\n\n"
+                f"Thanks for your message about \"{snippet}\".\n\n"
+                "Please share one of the following so I can help:\n"
+                "- The issue you are seeing\n"
+                "- The alarm or error text\n"
+                "- The model number"
             )
         return (
-            "I can help with Delta technical support questions. "
-            "Please share your issue, alarm/error text, or model number."
+            "## Delta Support\n\n"
+            "Please share one of the following so I can help:\n"
+            "- The issue you are seeing\n"
+            "- The alarm or error text\n"
+            "- The model number"
         )
 
     def _heuristic_user_query(self, current_message: str, history: list[ConversationMessage]) -> str:

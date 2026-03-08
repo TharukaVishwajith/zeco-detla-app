@@ -226,8 +226,12 @@
       max-width: min(760px, 88%);
       padding: 14px 16px;
       border-radius: 18px;
-      white-space: pre-wrap;
       line-height: 1.55;
+      overflow-wrap: anywhere;
+    }
+
+    .bubble.plain-text {
+      white-space: pre-wrap;
     }
 
     .message.user .bubble {
@@ -241,6 +245,62 @@
       color: var(--text);
       border-bottom-left-radius: 6px;
       border: 1px solid rgba(10, 106, 120, 0.12);
+    }
+
+    .bubble.markdown > :first-child {
+      margin-top: 0;
+    }
+
+    .bubble.markdown > :last-child {
+      margin-bottom: 0;
+    }
+
+    .bubble.markdown p,
+    .bubble.markdown ul,
+    .bubble.markdown ol,
+    .bubble.markdown blockquote,
+    .bubble.markdown pre,
+    .bubble.markdown h1,
+    .bubble.markdown h2,
+    .bubble.markdown h3,
+    .bubble.markdown h4,
+    .bubble.markdown h5,
+    .bubble.markdown h6 {
+      margin: 0 0 12px;
+    }
+
+    .bubble.markdown ul,
+    .bubble.markdown ol {
+      padding-left: 20px;
+    }
+
+    .bubble.markdown li + li {
+      margin-top: 4px;
+    }
+
+    .bubble.markdown blockquote {
+      padding-left: 12px;
+      border-left: 3px solid rgba(10, 106, 120, 0.3);
+      color: #35516f;
+    }
+
+    .bubble.markdown code {
+      padding: 1px 5px;
+      border-radius: 6px;
+      background: rgba(16, 27, 45, 0.08);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+    }
+
+    .bubble.markdown pre code {
+      display: block;
+      padding: 0;
+      background: transparent;
+      font-size: inherit;
+    }
+
+    .bubble.markdown a {
+      color: var(--accent-strong);
     }
 
     .message .meta {
@@ -429,6 +489,7 @@
     </section>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script>
     const baseUrlInput = document.getElementById("baseUrl");
     const healthButton = document.getElementById("healthButton");
@@ -448,6 +509,13 @@
       return "http://127.0.0.1:8000";
     }
     baseUrlInput.value = defaultBaseUrl();
+
+    if (window.marked) {
+      window.marked.setOptions({
+        gfm: true,
+        breaks: true
+      });
+    }
 
     function cleanValue(value) {
       return value.trim();
@@ -489,13 +557,34 @@
       chatLog.scrollTop = chatLog.scrollHeight;
     }
 
-    function createMessage(role, text, metaText) {
+    function escapeHtml(value) {
+      return value
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function renderMarkdown(markdown) {
+      if (window.marked) {
+        return window.marked.parse(markdown || "");
+      }
+      return `<p>${escapeHtml(markdown || "")}</p>`;
+    }
+
+    function createMessage(role, text, metaText, options = {}) {
+      const { markdown = false } = options;
       const wrapper = document.createElement("div");
       wrapper.className = `message ${role}`;
 
       const bubble = document.createElement("div");
-      bubble.className = "bubble";
-      bubble.textContent = text;
+      bubble.className = `bubble ${markdown ? "markdown" : "plain-text"}`;
+      if (markdown) {
+        bubble.innerHTML = renderMarkdown(text || "");
+      } else {
+        bubble.textContent = text;
+      }
       wrapper.appendChild(bubble);
 
       if (metaText) {
@@ -585,7 +674,7 @@
       requestId = body.request_id || requestId;
 
       const meta = `intent: ${body.intent} | device: ${body.device_type} | next_action: ${body.next_action}`;
-      createMessage("assistant", body.response_text || "(empty response)", meta);
+      createMessage("assistant", body.response_text || "(empty response)", meta, { markdown: true });
 
       if (body.missing_fields && body.missing_fields.length) {
         createDetailCard("Missing Fields", chipList(body.missing_fields));
