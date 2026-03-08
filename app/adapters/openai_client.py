@@ -13,14 +13,16 @@ from app.core.agent_models import (
     build_agent_model_config,
 )
 from app.models.conversation import (
+    ChatMessageRequest,
     ConversationMessage,
-    DeviceInfo,
     DeviceType,
     IntentClassification,
     IntentType,
     RetrievedDocument,
+    SupportScopeStatus,
     TroubleshootingAction,
     TroubleshootingResponse,
+    UnsupportedReason,
 )
 
 
@@ -80,18 +82,20 @@ class OpenAIClient:
 
     def classify_intent(
         self,
-        message: str,
-        device_info: DeviceInfo | None = None,
+        request: ChatMessageRequest,
         history: list[ConversationMessage] | None = None,
     ) -> IntentClassification:
         history = history or []
+        message = request.message
         normalized_message = re.sub(r"\s+", " ", message).strip()
         prompt = self._load_prompt("intent_prompt.txt")
         history_block = self._format_history(history)
         user_prompt = (
             f"Conversation history (oldest first):\n{history_block}\n\n"
             f"Current user message (highest priority):\n{normalized_message}\n\n"
-            f"Known device info:\n{device_info.model_dump_json() if device_info else '{}'}\n\n"
+            f"Known device info:\n{request.device_info.model_dump_json()}\n\n"
+            f"Customer info:\n{request.customer_info.model_dump_json()}\n\n"
+            f"Evidence pack:\n{request.evidence_pack.model_dump_json()}\n\n"
             "Return JSON only."
         )
 
@@ -109,10 +113,12 @@ class OpenAIClient:
                 user_query=classification.user_query,
                 history=history,
             )
+            if classification.support_scope_status == SupportScopeStatus.unknown and not classification.missing_scope_fields:
+                classification.missing_scope_fields = self._missing_scope_fields(request)
             return classification
         except Exception as exc:  # pragma: no cover - network/API failure path
             logger.warning("OpenAI classification failed, using heuristic fallback: %s", exc)
-            fallback = self._heuristic_classification(message=normalized_message, device_info=device_info, history=history)
+            fallback = self._heuristic_classification(request=request, history=history)
             if not self.client:
                 return fallback
             return fallback
@@ -189,11 +195,11 @@ class OpenAIClient:
 
     def _heuristic_classification(
         self,
-        message: str,
-        device_info: DeviceInfo | None,
+        request: ChatMessageRequest,
         history: list[ConversationMessage] | None = None,
     ) -> IntentClassification:
         history = history or []
+        message = request.message
         lowered = message.lower()
         recent_history = [item.content for item in history[-6:] if item.content]
         combined_text = "\n".join([*recent_history, message])
@@ -209,14 +215,14 @@ class OpenAIClient:
             device_type = DeviceType.pv
         elif "monitor" in combined_lowered or "gateway" in combined_lowered or "meter" in combined_lowered:
             device_type = DeviceType.monitoring
-        elif device_info:
-            device_type = device_info.device_type
+        else:
+            device_type = request.device_info.device_type
 
         error_match = re.search(r"\b([A-Z]{1,4}[- ]?\d{2,5})\b", message) or re.search(
             r"\b([A-Z]{1,4}[- ]?\d{2,5})\b",
             combined_text,
         )
-        model_number = device_info.model_number if device_info else None
+        model_number = request.device_info.model_number
         has_domain_context = self._has_domain_context(
             lowered_message=combined_lowered,
             device_type=device_type,
@@ -241,6 +247,8 @@ class OpenAIClient:
             missing_info.append("issue_or_question_details")
         system_message = self._heuristic_system_message(message) if "issue_or_question_details" in missing_info else None
         user_query = self._heuristic_user_query(message, history)
+        support_scope_status, unsupported_reason = self._heuristic_support_scope(request=request, combined_lowered=combined_lowered)
+        missing_scope_fields = self._missing_scope_fields(request) if support_scope_status == SupportScopeStatus.unknown else []
 
         return IntentClassification(
             intent=intent,
@@ -250,8 +258,57 @@ class OpenAIClient:
             model_number=model_number,
             risk_flags=risk_flags,
             missing_info=missing_info,
+            support_scope_status=support_scope_status,
+            unsupported_reason=unsupported_reason,
+            missing_scope_fields=missing_scope_fields,
             system_message=system_message,
         )
+
+    def _heuristic_support_scope(
+        self,
+        request: ChatMessageRequest,
+        combined_lowered: str,
+    ) -> tuple[SupportScopeStatus, UnsupportedReason | None]:
+        site_type = (request.evidence_pack.site_type or "").lower()
+        ownership_verified = request.evidence_pack.ownership_verified
+        system_size_kw = self._parse_system_size_kw(request.evidence_pack.system_size_kw)
+
+        if system_size_kw is not None and system_size_kw > 30:
+            return SupportScopeStatus.unsupported, UnsupportedReason.site_capacity_exceeded
+        if any(term in combined_lowered for term in ("industrial", "major commercial")) or site_type == "industrial":
+            return SupportScopeStatus.unsupported, UnsupportedReason.industrial_site
+        if any(term in combined_lowered for term in ("utility-scale", "utility scale", "embedded network")) or site_type in {
+            "utility_scale",
+            "embedded_network",
+        }:
+            return SupportScopeStatus.unsupported, UnsupportedReason.utility_scale_or_embedded_network
+        if ownership_verified is False or any(term in combined_lowered for term in ("unknown owner", "not sure who owns")):
+            return SupportScopeStatus.unsupported, UnsupportedReason.ownership_unverifiable
+
+        if self._missing_scope_fields(request):
+            return SupportScopeStatus.unknown, None
+        return SupportScopeStatus.supported, None
+
+    def _missing_scope_fields(self, request: ChatMessageRequest) -> list[str]:
+        missing = []
+        evidence = request.evidence_pack
+        if not evidence.site_type:
+            missing.append("site_type")
+        if not evidence.system_size_kw:
+            missing.append("system_size_kw")
+        if not evidence.user_role:
+            missing.append("user_role")
+        if evidence.ownership_verified is None:
+            missing.append("ownership_verified")
+        return missing
+
+    def _parse_system_size_kw(self, raw_value: str | None) -> float | None:
+        if not raw_value:
+            return None
+        match = re.search(r"\d+(?:\.\d+)?", raw_value)
+        if not match:
+            return None
+        return float(match.group(0))
 
     def _is_brief_message(self, lowered_message: str) -> bool:
         words = re.findall(r"[a-z0-9]+", lowered_message)

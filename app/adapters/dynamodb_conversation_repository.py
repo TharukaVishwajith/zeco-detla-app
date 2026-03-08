@@ -124,6 +124,12 @@ class DynamoConversationRepository:
             item["citations"] = message.citations
         if message.next_action:
             item["next_action"] = message.next_action.value
+        if message.support_scope_status:
+            item["support_scope_status"] = message.support_scope_status.value
+        if message.unsupported_reason:
+            item["unsupported_reason"] = message.unsupported_reason.value
+        if message.evidence_snapshot:
+            item["evidence_snapshot"] = message.evidence_snapshot.model_dump(exclude_none=True)
         return item
 
     def _deserialize_message(self, item: dict[str, Any]) -> ConversationMessage:
@@ -138,6 +144,9 @@ class DynamoConversationRepository:
             "intent": item.get("intent"),
             "citations": item.get("citations", []),
             "next_action": item.get("next_action"),
+            "support_scope_status": item.get("support_scope_status"),
+            "unsupported_reason": item.get("unsupported_reason"),
+            "evidence_snapshot": item.get("evidence_snapshot"),
         }
         return ConversationMessage.model_validate(payload)
 

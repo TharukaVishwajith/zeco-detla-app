@@ -13,6 +13,19 @@ class IntentType(str, Enum):
     general_question = "general_question"
 
 
+class SupportScopeStatus(str, Enum):
+    supported = "supported"
+    unsupported = "unsupported"
+    unknown = "unknown"
+
+
+class UnsupportedReason(str, Enum):
+    site_capacity_exceeded = "site_capacity_exceeded"
+    industrial_site = "industrial_site"
+    utility_scale_or_embedded_network = "utility_scale_or_embedded_network"
+    ownership_unverifiable = "ownership_unverifiable"
+
+
 class DeviceType(str, Enum):
     inverter = "inverter"
     battery = "battery"
@@ -42,6 +55,9 @@ class IntentClassification(BaseModel):
     model_number: str | None = None
     risk_flags: list[str] = Field(default_factory=list)
     missing_info: list[str] = Field(default_factory=list)
+    support_scope_status: SupportScopeStatus = SupportScopeStatus.unknown
+    unsupported_reason: UnsupportedReason | None = None
+    missing_scope_fields: list[str] = Field(default_factory=list)
     system_message: str | None = None
 
 
@@ -91,6 +107,9 @@ class ConversationMessage(BaseModel):
     intent: IntentType | None = None
     citations: list[str] = Field(default_factory=list)
     next_action: TroubleshootingAction | None = None
+    support_scope_status: SupportScopeStatus | None = None
+    unsupported_reason: UnsupportedReason | None = None
+    evidence_snapshot: EvidencePack | None = None
 
 
 class ChatMessageRequest(BaseModel):
@@ -115,7 +134,10 @@ class ChatMessageResponse(BaseModel):
     citations: list[str] = Field(default_factory=list)
     next_action: TroubleshootingAction
     missing_fields: list[str] = Field(default_factory=list)
+    missing_scope_fields: list[str] = Field(default_factory=list)
     safety_flags: list[str] = Field(default_factory=list)
+    support_scope_status: SupportScopeStatus = SupportScopeStatus.unknown
+    unsupported_reason: UnsupportedReason | None = None
     ticket: TicketResponse | None = None
     retrieved_documents: list[RetrievedDocument] = Field(default_factory=list)
 

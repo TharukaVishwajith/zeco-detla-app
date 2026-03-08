@@ -43,7 +43,10 @@ async def chat_message(
         citations=state.get("citations", []),
         next_action=state.get("next_action", "ask_question"),
         missing_fields=state.get("missing_fields", []),
+        missing_scope_fields=state.get("missing_scope_fields", classification.missing_scope_fields),
         safety_flags=state.get("safety_flags", []),
+        support_scope_status=state.get("support_scope_status", classification.support_scope_status),
+        unsupported_reason=state.get("unsupported_reason", classification.unsupported_reason),
         ticket=ticket,
         retrieved_documents=state.get("retrieved_docs", []),
     )
@@ -54,5 +57,6 @@ async def chat_message(
         citations=response.citations,
         next_action=response.next_action.value,
         system_message=response.system_message,
+        evidence_snapshot=state.get("merged_evidence_pack"),
     )
     return response

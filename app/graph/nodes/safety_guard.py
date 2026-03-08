@@ -5,7 +5,25 @@ SAFETY_TERMS = {
     "fire": "Potential fire hazard",
     "smoke": "Smoke reported",
     "burning smell": "Burning smell reported",
+    "scorch": "Scorch or burn marks reported",
+    "burn mark": "Scorch or burn marks reported",
+    "thermal shutdown": "Thermal shutdown reported",
     "water damage": "Possible water ingress",
+    "water ingress": "Possible water ingress",
+    "flood": "Flooding reported",
+    "condensation": "Condensation inside equipment reported",
+    "physical damage": "Physical damage reported",
+    "corrosion": "Corrosion reported",
+    "impact": "Impact damage reported",
+    "breaker trip": "Repeated protection device trips reported",
+    "breaker trips": "Repeated protection device trips reported",
+    "protection device": "Protection device issue reported",
+    "bypass": "Bypassed protection device reported",
+    "non-compliant wiring": "Unsafe wiring practice reported",
+    "diy": "DIY electrical work reported",
+    "ct relocation": "Installer-only CT relocation required",
+    "open enclosure": "Installer-only enclosure access required",
+    "wiring change": "Installer-only wiring change required",
     "electrical hazard": "Electrical hazard reported",
     "overheating": "Overheating reported",
     "sparking": "Sparking reported",
@@ -36,4 +54,3 @@ def build_safety_guard_node():
         }
 
     return safety_guard_node
-

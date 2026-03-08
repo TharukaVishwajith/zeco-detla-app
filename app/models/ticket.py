@@ -33,6 +33,9 @@ class TicketPayload(BaseModel):
     troubleshooting_steps: list[str] = Field(default_factory=list)
     attachments: list[str] = Field(default_factory=list)
     escalation_reason: str | None = None
+    escalation_summary: str | None = None
+    missing_artifacts: list[str] = Field(default_factory=list)
+    unsafe_instructions_given: bool = False
     evidence_pack: dict[str, Any] = Field(default_factory=dict)
 
 

@@ -13,6 +13,9 @@ def build_ticket_creation_node(ticket_service):
             request=request,
             troubleshooting_steps=troubleshooting_steps,
             escalation_reason=escalation_reason,
+            merged_evidence_pack=state.get("merged_evidence_pack", {}),
+            unsupported_reason=state.get("unsupported_reason"),
+            missing_artifacts=state.get("missing_artifacts", []),
         )
         response_text = f"Support ticket {ticket_response.ticket_id} created successfully."
         return {
@@ -23,4 +26,3 @@ def build_ticket_creation_node(ticket_service):
         }
 
     return ticket_creation_node
-

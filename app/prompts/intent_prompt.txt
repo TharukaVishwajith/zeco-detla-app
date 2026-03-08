@@ -14,6 +14,9 @@ Return JSON with this schema:
   "model_number": "string | null",
   "risk_flags": ["string"],
   "missing_info": ["string"],
+  "support_scope_status": "supported | unsupported | unknown",
+  "unsupported_reason": "site_capacity_exceeded | industrial_site | utility_scale_or_embedded_network | ownership_unverifiable | null",
+  "missing_scope_fields": ["string"],
   "system_message": "string | null"
 }
 
@@ -32,6 +35,11 @@ Rules:
 - For `troubleshoot` or `escalate`, set `system_message` to `null`.
 - Extract `error_code` only if present in the message.
 - Do not invent device information.
+- Use the evidence pack and conversation to classify support scope:
+  - `unsupported` for sites > 30 kW, industrial/major commercial sites, utility-scale or embedded-network systems, or unverifiable ownership/responsibility
+  - `unknown` when the message does not provide enough site scope data yet
+  - `supported` only when the site fits the documented scope
+- When `support_scope_status` is `unknown`, populate only the minimum missing scope fields needed to decide support eligibility.
 - Build `user_query` from the current message plus all relevant context from message history.
 - Give highest priority to the current user message in `user_query`.
 - Return JSON only.
