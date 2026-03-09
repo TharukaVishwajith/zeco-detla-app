@@ -1,0 +1,157 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  DEPLOY_DIR: /home/${{ secrets.EC2_USER }}/zeco-delta
+  DOCKER_IMAGE_NAME: zeco-delta-app
+  DOCKER_CONTAINER_NAME: zeco-delta-app
+  HOST_PORT: "8000"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Prepare remote host
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" << EOF
+          set -eu
+
+          if ! command -v docker >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y docker.io
+          fi
+
+          sudo systemctl enable --now docker
+          mkdir -p "${DEPLOY_DIR}"
+          EOF
+
+      - name: Sync repository to server
+        run: |
+          rsync -az --delete \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '.venv' \
+            --exclude 'venv' \
+            --exclude '__pycache__' \
+            -e "ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa" \
+            ./ "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:${DEPLOY_DIR}/"
+
+      - name: Build and deploy on server
+        env:
+          APP_ENV: production
+          LOG_LEVEL: ${{ secrets.LOG_LEVEL || 'INFO' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_CHAT_MODEL: ${{ secrets.OPENAI_CHAT_MODEL || 'gpt-4.1-mini' }}
+          OPENAI_AGENT_MODELS: ${{ secrets.OPENAI_AGENT_MODELS }}
+          OPENAI_EMBEDDING_MODEL: ${{ secrets.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small' }}
+          OPENAI_EMBEDDING_DIMENSIONS: ${{ secrets.OPENAI_EMBEDDING_DIMENSIONS || '1536' }}
+          OPENSEARCH_HOST: ${{ secrets.OPENSEARCH_HOST }}
+          OPENSEARCH_INDEX: ${{ secrets.OPENSEARCH_INDEX || 'knowledge_base' }}
+          OPENSEARCH_REGION: ${{ secrets.OPENSEARCH_REGION || 'us-east-1' }}
+          OPENSEARCH_PORT: ${{ secrets.OPENSEARCH_PORT || '443' }}
+          OPENSEARCH_USERNAME: ${{ secrets.OPENSEARCH_USERNAME }}
+          OPENSEARCH_PASSWORD: ${{ secrets.OPENSEARCH_PASSWORD }}
+          OPENSEARCH_VERIFY_CERTS: ${{ secrets.OPENSEARCH_VERIFY_CERTS || 'true' }}
+          OPENSEARCH_VECTOR_FIELD: ${{ secrets.OPENSEARCH_VECTOR_FIELD || 'embeddings' }}
+          TICKET_API_BASE_URL: ${{ secrets.TICKET_API_BASE_URL }}
+          TICKET_API_KEY: ${{ secrets.TICKET_API_KEY }}
+          TICKET_API_TIMEOUT_SECONDS: ${{ secrets.TICKET_API_TIMEOUT_SECONDS || '10' }}
+          RETRIEVAL_TOP_K: ${{ secrets.RETRIEVAL_TOP_K || '10' }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          DYNAMODB_TABLE_NAME: ${{ secrets.DYNAMODB_TABLE_NAME }}
+          DYNAMODB_REGION: ${{ secrets.DYNAMODB_REGION || 'ap-southeast-2' }}
+          CONVERSATION_HISTORY_MAX_MESSAGES: ${{ secrets.CONVERSATION_HISTORY_MAX_MESSAGES || '12' }}
+          UVICORN_HOST: 0.0.0.0
+          UVICORN_PORT: ${{ secrets.UVICORN_PORT || '8000' }}
+          UVICORN_RELOAD: "false"
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" << EOF
+          set -eu
+
+          cd "${DEPLOY_DIR}"
+
+          cat > .env.runtime << ENVVARS
+          APP_ENV=${APP_ENV}
+          LOG_LEVEL=${LOG_LEVEL}
+          OPENAI_API_KEY=${OPENAI_API_KEY}
+          OPENAI_CHAT_MODEL=${OPENAI_CHAT_MODEL}
+          OPENAI_AGENT_MODELS=${OPENAI_AGENT_MODELS}
+          OPENAI_EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL}
+          OPENAI_EMBEDDING_DIMENSIONS=${OPENAI_EMBEDDING_DIMENSIONS}
+          OPENSEARCH_HOST=${OPENSEARCH_HOST}
+          OPENSEARCH_INDEX=${OPENSEARCH_INDEX}
+          OPENSEARCH_REGION=${OPENSEARCH_REGION}
+          OPENSEARCH_PORT=${OPENSEARCH_PORT}
+          OPENSEARCH_USERNAME=${OPENSEARCH_USERNAME}
+          OPENSEARCH_PASSWORD=${OPENSEARCH_PASSWORD}
+          OPENSEARCH_VERIFY_CERTS=${OPENSEARCH_VERIFY_CERTS}
+          OPENSEARCH_VECTOR_FIELD=${OPENSEARCH_VECTOR_FIELD}
+          TICKET_API_BASE_URL=${TICKET_API_BASE_URL}
+          TICKET_API_KEY=${TICKET_API_KEY}
+          TICKET_API_TIMEOUT_SECONDS=${TICKET_API_TIMEOUT_SECONDS}
+          RETRIEVAL_TOP_K=${RETRIEVAL_TOP_K}
+          AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+          AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+          AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+          DYNAMODB_TABLE_NAME=${DYNAMODB_TABLE_NAME}
+          DYNAMODB_REGION=${DYNAMODB_REGION}
+          CONVERSATION_HISTORY_MAX_MESSAGES=${CONVERSATION_HISTORY_MAX_MESSAGES}
+          UVICORN_HOST=${UVICORN_HOST}
+          UVICORN_PORT=${UVICORN_PORT}
+          UVICORN_RELOAD=${UVICORN_RELOAD}
+          ENVVARS
+
+          sudo docker stop "${DOCKER_CONTAINER_NAME}" 2>/dev/null || true
+          sudo docker rm -f "${DOCKER_CONTAINER_NAME}" 2>/dev/null || true
+          sudo docker rmi "${DOCKER_IMAGE_NAME}" 2>/dev/null || true
+
+          sudo docker build -t "${DOCKER_IMAGE_NAME}" .
+
+          sudo docker run -d \
+            --name "${DOCKER_CONTAINER_NAME}" \
+            --restart unless-stopped \
+            --env-file .env.runtime \
+            -p "${HOST_PORT}:${UVICORN_PORT}" \
+            "${DOCKER_IMAGE_NAME}"
+
+          sleep 10
+
+          if ! sudo docker ps --format '{{.Names}}' | grep -qx "${DOCKER_CONTAINER_NAME}"; then
+            sudo docker logs "${DOCKER_CONTAINER_NAME}" || true
+            exit 1
+          fi
+
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS "http://127.0.0.1:${HOST_PORT}/health" >/dev/null; then
+              exit 0
+            fi
+            sleep 5
+          done
+
+          sudo docker logs "${DOCKER_CONTAINER_NAME}" || true
+          exit 1
+          EOF
+
+      - name: Deployment summary
+        run: |
+          echo "Deployment completed"
+          echo "Application URL: http://${{ secrets.EC2_HOST }}:${HOST_PORT}"
+          echo "Health check URL: http://${{ secrets.EC2_HOST }}:${HOST_PORT}/health"
