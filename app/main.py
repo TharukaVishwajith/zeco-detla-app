@@ -62,7 +62,6 @@ conversation_history_service = ConversationHistoryService(
         region_name=settings.dynamodb_region,
         aws_access_key_id=settings.aws_access_key_id,
         aws_secret_access_key=settings.aws_secret_access_key,
-        aws_session_token=settings.aws_session_token,
     ),
     max_messages=settings.conversation_history_max_messages,
 )

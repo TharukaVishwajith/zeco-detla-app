@@ -151,14 +151,12 @@ class DynamoConversationRepositoryTests(unittest.TestCase):
             region_name="ap-southeast-2",
             aws_access_key_id="AKIA_TEST",
             aws_secret_access_key="SECRET_TEST",
-            aws_session_token="TOKEN_TEST",
         )
 
         kwargs = repository._resource_kwargs()  # noqa: SLF001 - validating credentials mapping directly
         self.assertEqual(kwargs["region_name"], "ap-southeast-2")
         self.assertEqual(kwargs["aws_access_key_id"], "AKIA_TEST")
         self.assertEqual(kwargs["aws_secret_access_key"], "SECRET_TEST")
-        self.assertEqual(kwargs["aws_session_token"], "TOKEN_TEST")
 
 
 if __name__ == "__main__":

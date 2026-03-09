@@ -16,13 +16,11 @@ class DynamoConversationRepository:
         region_name: str | None = None,
         aws_access_key_id: str | None = None,
         aws_secret_access_key: str | None = None,
-        aws_session_token: str | None = None,
     ):
         self.table_name = table_name
         self.region_name = region_name
         self.aws_access_key_id = aws_access_key_id
         self.aws_secret_access_key = aws_secret_access_key
-        self.aws_session_token = aws_session_token
         self._table = None
 
     @property
@@ -164,8 +162,6 @@ class DynamoConversationRepository:
         if has_access_key and has_secret_key:
             kwargs["aws_access_key_id"] = self.aws_access_key_id
             kwargs["aws_secret_access_key"] = self.aws_secret_access_key
-            if self.aws_session_token:
-                kwargs["aws_session_token"] = self.aws_session_token
         elif has_access_key or has_secret_key:
             logger.warning("Incomplete AWS key configuration; falling back to default credential chain")
 
