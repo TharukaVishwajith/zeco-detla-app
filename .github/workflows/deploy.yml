@@ -34,7 +34,10 @@ jobs:
 
           if ! command -v docker >/dev/null 2>&1; then
             sudo apt-get update
-            sudo apt-get install -y docker.io
+            sudo apt-get install -y docker.io curl
+          elif ! command -v curl >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y curl
           fi
 
           sudo systemctl enable --now docker
@@ -133,19 +136,26 @@ jobs:
             "${DOCKER_IMAGE_NAME}"
 
           sleep 10
+          sudo docker ps -a --filter "name=${DOCKER_CONTAINER_NAME}"
 
-          if ! sudo docker ps --format '{{.Names}}' | grep -qx "${DOCKER_CONTAINER_NAME}"; then
+          container_status=\$(sudo docker inspect -f '{{.State.Status}}' "${DOCKER_CONTAINER_NAME}" 2>/dev/null || echo "missing")
+          if [ "\$container_status" != "running" ]; then
+            echo "Container status: \$container_status"
+            sudo docker inspect "${DOCKER_CONTAINER_NAME}" || true
             sudo docker logs "${DOCKER_CONTAINER_NAME}" || true
             exit 1
           fi
 
           for attempt in 1 2 3 4 5; do
             if curl -fsS "http://127.0.0.1:${HOST_PORT}/health" >/dev/null; then
+              echo "Health check passed on attempt \$attempt"
               exit 0
             fi
+            echo "Health check attempt \$attempt failed"
             sleep 5
           done
 
+          sudo docker inspect "${DOCKER_CONTAINER_NAME}" || true
           sudo docker logs "${DOCKER_CONTAINER_NAME}" || true
           exit 1
           EOF
