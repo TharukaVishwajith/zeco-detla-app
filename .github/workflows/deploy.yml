@@ -146,18 +146,25 @@ jobs:
             exit 1
           fi
 
+          healthcheck_passed=0
           for attempt in 1 2 3 4 5; do
             if curl -fsS "http://127.0.0.1:${HOST_PORT}/health" >/dev/null; then
               echo "Health check passed on attempt \$attempt"
-              exit 0
+              healthcheck_passed=1
+              break
             fi
             echo "Health check attempt \$attempt failed"
             sleep 5
           done
 
+          if [ "\$healthcheck_passed" -eq 1 ]; then
+            echo "Deployment succeeded"
+            sudo docker ps --filter "name=${DOCKER_CONTAINER_NAME}"
+          else
           sudo docker inspect "${DOCKER_CONTAINER_NAME}" || true
           sudo docker logs "${DOCKER_CONTAINER_NAME}" || true
           exit 1
+          fi
           EOF
 
       - name: Deployment summary
