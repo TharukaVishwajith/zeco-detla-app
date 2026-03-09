@@ -60,13 +60,13 @@ jobs:
           APP_ENV: production
           LOG_LEVEL: ${{ secrets.LOG_LEVEL || 'INFO' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_CHAT_MODEL: ${{ secrets.OPENAI_CHAT_MODEL || 'gpt-4.1-mini' }}
+          OPENAI_CHAT_MODEL: ${{ secrets.OPENAI_CHAT_MODEL || 'gpt-5.2' }}
           OPENAI_AGENT_MODELS: ${{ secrets.OPENAI_AGENT_MODELS }}
           OPENAI_EMBEDDING_MODEL: ${{ secrets.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small' }}
           OPENAI_EMBEDDING_DIMENSIONS: ${{ secrets.OPENAI_EMBEDDING_DIMENSIONS || '1536' }}
           OPENSEARCH_HOST: ${{ secrets.OPENSEARCH_HOST }}
-          OPENSEARCH_INDEX: ${{ secrets.OPENSEARCH_INDEX || 'knowledge_base' }}
-          OPENSEARCH_REGION: ${{ secrets.OPENSEARCH_REGION || 'us-east-1' }}
+          OPENSEARCH_INDEX: ${{ secrets.OPENSEARCH_INDEX || 'delta_index' }}
+          OPENSEARCH_REGION: ${{ secrets.OPENSEARCH_REGION || 'ap-southeast-2' }}
           OPENSEARCH_PORT: ${{ secrets.OPENSEARCH_PORT || '443' }}
           OPENSEARCH_USERNAME: ${{ secrets.OPENSEARCH_USERNAME }}
           OPENSEARCH_PASSWORD: ${{ secrets.OPENSEARCH_PASSWORD }}
@@ -81,7 +81,7 @@ jobs:
           AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
           DYNAMODB_TABLE_NAME: ${{ secrets.DYNAMODB_TABLE_NAME }}
           DYNAMODB_REGION: ${{ secrets.DYNAMODB_REGION || 'ap-southeast-2' }}
-          CONVERSATION_HISTORY_MAX_MESSAGES: ${{ secrets.CONVERSATION_HISTORY_MAX_MESSAGES || '12' }}
+          CONVERSATION_HISTORY_MAX_MESSAGES: ${{ secrets.CONVERSATION_HISTORY_MAX_MESSAGES || '20' }}
           UVICORN_HOST: 0.0.0.0
           UVICORN_PORT: ${{ secrets.UVICORN_PORT || '8000' }}
           UVICORN_RELOAD: "false"
