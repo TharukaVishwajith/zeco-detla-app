@@ -339,6 +339,72 @@
       color: var(--text);
     }
 
+    .documents-card {
+      max-width: min(760px, 88%);
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 12px 14px;
+      font-size: 13px;
+    }
+
+    .documents-card h3 {
+      margin-bottom: 4px;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+
+    .documents-summary {
+      margin-bottom: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .document-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .document-item {
+      display: grid;
+      gap: 4px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #f5f8fc;
+      border: 1px solid rgba(214, 221, 232, 0.8);
+    }
+
+    .document-item-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: baseline;
+      flex-wrap: wrap;
+    }
+
+    .document-id {
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .document-score {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .document-title {
+      color: var(--text);
+      line-height: 1.45;
+    }
+
+    .document-meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
     .composer {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -640,6 +706,78 @@
       createDetailCard(title, pre);
     }
 
+    function addRetrievedDocumentsCard(documents) {
+      const card = document.createElement("div");
+      card.className = "documents-card";
+
+      const heading = document.createElement("h3");
+      heading.textContent = "Retrieved Documents";
+      card.appendChild(heading);
+
+      const summary = document.createElement("div");
+      summary.className = "documents-summary";
+      summary.textContent = `${documents.length} document${documents.length === 1 ? "" : "s"} retrieved`;
+      card.appendChild(summary);
+
+      const list = document.createElement("div");
+      list.className = "document-list";
+
+      documents.slice(0, 3).forEach((doc) => {
+        const item = document.createElement("div");
+        item.className = "document-item";
+
+        const header = document.createElement("div");
+        header.className = "document-item-header";
+
+        const id = document.createElement("div");
+        id.className = "document-id";
+        id.textContent = doc.doc_id || "Unknown document";
+        header.appendChild(id);
+
+        if (typeof doc.score === "number") {
+          const score = document.createElement("div");
+          score.className = "document-score";
+          score.textContent = `score: ${doc.score.toFixed(3)}`;
+          header.appendChild(score);
+        }
+
+        item.appendChild(header);
+
+        const title = document.createElement("div");
+        title.className = "document-title";
+        title.textContent = doc.title || "Untitled";
+        item.appendChild(title);
+
+        const metaParts = [];
+        if (doc.product) metaParts.push(`product: ${doc.product}`);
+        if (doc.model) metaParts.push(`model: ${doc.model}`);
+        if (doc.firmware) metaParts.push(`firmware: ${doc.firmware}`);
+        if (doc.error_code) metaParts.push(`error: ${doc.error_code}`);
+        if (doc.section_title) metaParts.push(`section: ${doc.section_title}`);
+        if (doc.page_number !== null && doc.page_number !== undefined) metaParts.push(`page: ${doc.page_number}`);
+
+        if (metaParts.length) {
+          const meta = document.createElement("div");
+          meta.className = "document-meta";
+          meta.textContent = metaParts.join(" | ");
+          item.appendChild(meta);
+        }
+
+        list.appendChild(item);
+      });
+
+      if (documents.length > 3) {
+        const more = document.createElement("div");
+        more.className = "document-meta";
+        more.textContent = `+ ${documents.length - 3} more not shown`;
+        list.appendChild(more);
+      }
+
+      card.appendChild(list);
+      chatLog.appendChild(card);
+      scrollChatToBottom();
+    }
+
     async function callApi(path, options = {}) {
       const url = `${baseUrlInput.value.replace(/\/$/, "")}${path}`;
       const response = await fetch(url, { referrerPolicy: "no-referrer", ...options });
@@ -693,7 +831,7 @@
       }
 
       if (body.retrieved_documents && body.retrieved_documents.length) {
-        addJsonCard("Retrieved Documents", body.retrieved_documents);
+        addRetrievedDocumentsCard(body.retrieved_documents);
       }
     }
 

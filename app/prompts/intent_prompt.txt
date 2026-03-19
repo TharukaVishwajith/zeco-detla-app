@@ -42,6 +42,10 @@ Rules:
   - `unsupported` for sites > 30 kW, industrial/major commercial sites, utility-scale or embedded-network systems
   - `unknown` when the message does not provide enough site scope data yet
   - `supported` only when the site fits the documented scope
+- Infer support-scope facts from the user's natural language when they are clearly stated in the current message or history.
+  For example, phrasing that clearly indicates home or residential use, approximate system size in kW, and that the user is the owner/customer
+  is enough to avoid asking a redundant site-eligibility question.
+- Do not require scope facts to appear as structured field labels. Use plain-language cues from the conversation when they are explicit.
 - When `support_scope_status` is `unknown`, populate only the minimum missing scope fields needed to decide support eligibility.
   If you include a scope-related `system_message`, format it as Markdown with a short heading and bullet list.
 - Build `user_query` from the current message plus all relevant context from message history.

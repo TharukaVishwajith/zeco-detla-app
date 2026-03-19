@@ -47,6 +47,8 @@ class FakeLLMClient:
         elif "industrial" in lowered:
             support_scope_status = SupportScopeStatus.unsupported
             unsupported_reason = UnsupportedReason.industrial_site
+        elif "home use" in lowered and "10kw" in lowered:
+            support_scope_status = SupportScopeStatus.supported
         elif not all(
             (
                 request.evidence_pack.site_type,
@@ -198,6 +200,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["next_action"], "ask_question")
         self.assertIn("## Site Eligibility Check", state["response_text"])
         self.assertEqual(state["missing_scope_fields"], ["site_type", "system_size_kw", "user_role", "ownership_verified"])
+
+    def test_initial_message_scope_evidence_skips_site_eligibility_prompt(self):
+        request = ChatMessageRequest(
+            message="H10E delta invertor home use 10kw has error",
+        )
+        state = self.workflow.invoke({"request": request.model_dump(mode="json")})
+        self.assertEqual(state["current_phase"], "troubleshooting")
+        self.assertNotIn("## Site Eligibility Check", state["response_text"])
+        self.assertEqual(state["support_scope_status"], "supported")
+        self.assertEqual(state["next_action"], "continue_troubleshooting")
 
     def test_safety_path_collects_missing_evidence(self):
         request = ChatMessageRequest(

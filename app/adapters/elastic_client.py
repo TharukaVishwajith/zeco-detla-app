@@ -141,10 +141,10 @@ class OpenSearchHybridClient:
     ) -> list[dict[str, Any]]:
         preferred_vector_field = self.vector_field
         candidate_fields = [preferred_vector_field]
-        if preferred_vector_field != "embeddings":
-            candidate_fields.append("embeddings")
-        if preferred_vector_field != "embedding":
-            candidate_fields.append("embedding")
+        # if preferred_vector_field != "embeddings":
+        #     candidate_fields.append("embeddings")
+        # if preferred_vector_field != "embedding":
+        #     candidate_fields.append("embedding")
 
         for field in candidate_fields:
             results = self._semantic_search_for_field(
