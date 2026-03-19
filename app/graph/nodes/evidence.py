@@ -47,6 +47,7 @@ def build_evidence_collection_node():
             "response_text": response_text,
             "next_action": next_action,
             "current_phase": "evidence_collection",
+            "escalation_active": True,
         }
 
     return evidence_collection_node

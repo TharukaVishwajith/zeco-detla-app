@@ -109,6 +109,7 @@ class ConversationMessage(BaseModel):
     next_action: TroubleshootingAction | None = None
     support_scope_status: SupportScopeStatus | None = None
     unsupported_reason: UnsupportedReason | None = None
+    escalation_active: bool | None = None
     evidence_snapshot: EvidencePack | None = None
 
 

@@ -309,6 +309,7 @@ class WorkflowTests(unittest.TestCase):
             ConversationMessage(
                 role=ConversationRole.assistant,
                 content="Follow the documented restart sequence from the retrieved Delta KB article.",
+                escalation_active=False,
                 evidence_snapshot=EvidencePack(
                     site_type="residential",
                     system_size_kw="10",
@@ -340,6 +341,85 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state.get("history"), [])
         self.assertIn("My inverter shows E031 after restart", self.search_adapter.last_query)
         self.assertEqual(state["merged_evidence_pack"]["serial_number"], "SN12345")
+
+    def test_escalation_follow_up_stays_on_evidence_collection(self):
+        request = ChatMessageRequest(message="Serial number SN12345")
+        history = [
+            ConversationMessage(
+                role=ConversationRole.user,
+                content="Please escalate this inverter issue",
+            ),
+            ConversationMessage(
+                role=ConversationRole.assistant,
+                content="To create the support ticket, please provide the missing evidence.",
+                intent=IntentType.escalate,
+                next_action=TroubleshootingAction.collect_evidence,
+                escalation_active=True,
+                evidence_snapshot=EvidencePack(
+                    site_type="residential",
+                    system_size_kw="10",
+                    user_role="customer_owner",
+                    ownership_verified=True,
+                    inverter_model="M100A",
+                    error_code="E031",
+                    timestamp="2026-03-07T09:30:00Z",
+                    system_topology="ac_coupled",
+                    phase_type="single_phase",
+                    backup_loads_present=False,
+                    recent_changes="No recent changes",
+                    environmental_conditions="Dry, 32C ambient",
+                ),
+            ),
+        ]
+        state = self.workflow.invoke(
+            {
+                "request": request.model_dump(mode="json"),
+                "history": [message.model_dump(mode="json") for message in history],
+            }
+        )
+        self.assertEqual(state["current_phase"], "evidence_collection")
+        self.assertEqual(state["classification"]["intent"], IntentType.escalate.value)
+        self.assertTrue(state["escalation_active"])
+        self.assertNotIn("serial_number", state["missing_fields"])
+        self.assertEqual(state["next_action"], "collect_evidence")
+
+    def test_escalation_follow_up_uses_history_before_asking_again(self):
+        request = ChatMessageRequest(message="Please create the ticket")
+        history = [
+            ConversationMessage(
+                role=ConversationRole.user,
+                content="Here are the missing details: serial number SN12345, firmware version 1.0.4, timestamp 2026-03-07T09:30:00Z",
+            ),
+            ConversationMessage(
+                role=ConversationRole.assistant,
+                content="I still need a few more items before I can create the ticket.",
+                intent=IntentType.escalate,
+                next_action=TroubleshootingAction.collect_evidence,
+                escalation_active=True,
+                evidence_snapshot=EvidencePack(
+                    site_type="residential",
+                    system_size_kw="10",
+                    user_role="customer_owner",
+                    ownership_verified=True,
+                    inverter_model="M100A",
+                    error_code="E031",
+                    system_topology="ac_coupled",
+                    phase_type="single_phase",
+                    backup_loads_present=False,
+                    recent_changes="No recent changes",
+                    environmental_conditions="Dry, 32C ambient",
+                ),
+            ),
+        ]
+        state = self.workflow.invoke(
+            {
+                "request": request.model_dump(mode="json"),
+                "history": [message.model_dump(mode="json") for message in history],
+            }
+        )
+        self.assertEqual(state["current_phase"], "ticket_creation")
+        self.assertEqual(state["ticket_response"]["status"], "mock_created")
+        self.assertFalse(state["escalation_active"])
 
 
 if __name__ == "__main__":

@@ -36,6 +36,7 @@ class ConversationHistoryService:
         citations: list[str],
         next_action: str,
         system_message: str | None = None,
+        escalation_active: bool | None = None,
         evidence_snapshot: dict | None = None,
     ) -> None:
         if not request.request_id or not self.configured:
@@ -58,6 +59,7 @@ class ConversationHistoryService:
                 next_action=next_action,
                 support_scope_status=classification.support_scope_status,
                 unsupported_reason=classification.unsupported_reason,
+                escalation_active=escalation_active,
                 evidence_snapshot=evidence_snapshot,
             ),
         ]

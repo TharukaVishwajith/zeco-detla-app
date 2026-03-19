@@ -23,6 +23,7 @@ def build_ticket_creation_node(ticket_service):
             "response_text": response_text,
             "next_action": "escalate",
             "current_phase": "ticket_creation",
+            "escalation_active": False,
         }
 
     return ticket_creation_node

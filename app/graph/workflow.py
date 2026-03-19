@@ -80,6 +80,8 @@ def _route_after_safety(state: SupportGraphState) -> str:
         return "evidence_collection"
     if state.get("support_scope_status") == "unsupported":
         return "evidence_collection"
+    if state.get("escalation_active"):
+        return "evidence_collection"
     intent = state.get("classification", {}).get("intent")
     request_ticket = state.get("request", {}).get("request_ticket", False)
     if intent == "escalate" or request_ticket:

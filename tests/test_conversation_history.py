@@ -128,6 +128,38 @@ class ConversationHistoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(assistant_message.content, response.response_text)
         self.assertEqual(assistant_message.system_message, response.system_message)
 
+    async def test_escalation_state_is_persisted_with_history(self):
+        class EscalationWorkflow(FakeWorkflow):
+            def invoke(self, state: dict) -> dict:
+                return {
+                    "classification": {
+                        "intent": IntentType.escalate.value,
+                        "device_type": DeviceType.inverter.value,
+                        "error_code": "E031",
+                        "model_number": None,
+                        "risk_flags": [],
+                        "missing_info": [],
+                        "support_scope_status": "supported",
+                        "unsupported_reason": None,
+                        "missing_scope_fields": [],
+                        "system_message": None,
+                    },
+                    "current_phase": "evidence_collection",
+                    "response_text": "Please provide the serial number.",
+                    "citations": [],
+                    "next_action": TroubleshootingAction.collect_evidence.value,
+                    "escalation_active": True,
+                }
+
+        response = await chat_message(
+            ChatMessageRequest(message="Please escalate this"),
+            workflow=EscalationWorkflow(),
+            conversation_history_service=self.service,
+        )
+
+        stored_messages = self.repository.load_messages(response.request_id)
+        self.assertTrue(stored_messages[1].escalation_active)
+
 
 class DynamoConversationRepositoryTests(unittest.TestCase):
     def test_sort_key_uses_timestamp_prefix(self):
@@ -157,6 +189,20 @@ class DynamoConversationRepositoryTests(unittest.TestCase):
         self.assertEqual(kwargs["region_name"], "ap-southeast-2")
         self.assertEqual(kwargs["aws_access_key_id"], "AKIA_TEST")
         self.assertEqual(kwargs["aws_secret_access_key"], "SECRET_TEST")
+
+    def test_escalation_state_round_trips(self):
+        repository = DynamoConversationRepository(table_name="zeco_delta_table", region_name="us-east-1")
+        item = repository._serialize_message(  # noqa: SLF001 - validating item fields directly
+            request_id="req-123",
+            message=ConversationMessage(
+                role=ConversationRole.assistant,
+                content="Please provide the serial number.",
+                escalation_active=True,
+            ),
+        )
+
+        restored = repository._deserialize_message(item)  # noqa: SLF001 - validating item fields directly
+        self.assertTrue(restored.escalation_active)
 
 
 if __name__ == "__main__":

@@ -52,6 +52,7 @@ def build_troubleshooting_node(llm_client, validation_service):
             "citations": response.citations,
             "next_action": response.next_action.value,
             "current_phase": "troubleshooting",
+            "escalation_active": response.next_action in {TroubleshootingAction.collect_evidence, TroubleshootingAction.escalate},
             "errors": errors if not is_valid else [],
         }
 

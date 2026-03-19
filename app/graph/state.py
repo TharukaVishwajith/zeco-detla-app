@@ -24,4 +24,5 @@ class SupportGraphState(TypedDict, total=False):
     support_scope_status: str
     unsupported_reason: str
     missing_scope_fields: list[str]
+    escalation_active: bool
     errors: NotRequired[list[str]]

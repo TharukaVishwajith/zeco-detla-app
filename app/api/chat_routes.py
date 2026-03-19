@@ -57,6 +57,7 @@ async def chat_message(
         citations=response.citations,
         next_action=response.next_action.value,
         system_message=response.system_message,
+        escalation_active=state.get("escalation_active"),
         evidence_snapshot=state.get("merged_evidence_pack"),
     )
     return response

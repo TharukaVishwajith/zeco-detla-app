@@ -6,6 +6,7 @@ from pathlib import Path
 from langchain_core.messages import AIMessage
 from openai import OpenAI
 
+from app.core.conversation_context import latest_escalation_state
 from app.core.agent_models import (
     INTENT_AGENT_NAME,
     TROUBLESHOOTING_AGENT_NAME,
@@ -204,6 +205,7 @@ class OpenAIClient:
         recent_history = [item.content for item in history[-6:] if item.content]
         combined_text = "\n".join([*recent_history, message])
         combined_lowered = combined_text.lower()
+        active_escalation = latest_escalation_state(history) and not request.issue_resolved
         risk_flags = [term for term in SAFETY_TERMS if term in combined_lowered]
 
         device_type = DeviceType.unknown
@@ -231,7 +233,7 @@ class OpenAIClient:
         )
 
         intent = IntentType.troubleshoot
-        if any(term in lowered for term in ("ticket", "escalate", "support case", "technician")):
+        if active_escalation or any(term in lowered for term in ("ticket", "escalate", "support case", "technician")):
             intent = IntentType.escalate
         elif any(term in lowered for term in ("how do", "what is", "where can", "manual")) or "?" in message:
             intent = IntentType.general_question
@@ -245,7 +247,9 @@ class OpenAIClient:
             missing_info.append("error_code")
         if intent == IntentType.general_question and not has_domain_context:
             missing_info.append("issue_or_question_details")
-        system_message = self._heuristic_system_message(message) if "issue_or_question_details" in missing_info else None
+        system_message = None if intent == IntentType.escalate else (
+            self._heuristic_system_message(message) if "issue_or_question_details" in missing_info else None
+        )
         user_query = self._heuristic_user_query(message, history)
         support_scope_status, unsupported_reason = self._heuristic_support_scope(request=request, combined_lowered=combined_lowered)
         missing_scope_fields = self._missing_scope_fields(request) if support_scope_status == SupportScopeStatus.unknown else []
@@ -404,7 +408,17 @@ class OpenAIClient:
             content = re.sub(r"\s+", " ", message.content).strip()
             if not content:
                 continue
-            lines.append(f"{message.role.value.upper()}: {content}")
+            metadata = []
+            if message.intent:
+                metadata.append(f"intent={message.intent.value}")
+            if message.next_action:
+                metadata.append(f"next_action={message.next_action.value}")
+            if message.escalation_active is not None:
+                metadata.append(f"escalation_active={'true' if message.escalation_active else 'false'}")
+            label = message.role.value.upper()
+            if metadata:
+                label = f"{label} [{' '.join(metadata)}]"
+            lines.append(f"{label}: {content}")
         return "\n".join(lines) if lines else "(none)"
 
     def _load_prompt(self, filename: str) -> str:
