@@ -9,6 +9,7 @@ from app.adapters.elastic_client import OpenSearchHybridClient
 from app.adapters.openai_client import OpenAIClient
 from app.adapters.ticket_api_client import TicketApiClient
 from app.api.chat_routes import router as chat_router
+from app.api.mock_ticket_routes import router as mock_ticket_router
 from app.api.ticket_routes import router as ticket_router
 from app.core.agent_models import build_agent_model_config
 from app.core.config import get_settings
@@ -16,6 +17,7 @@ from app.core.logging import configure_logging
 from app.graph.workflow import WorkflowDependencies, build_workflow
 from app.models.conversation import HealthResponse
 from app.services.conversation_history_service import ConversationHistoryService
+from app.services.mock_ticket_store import InMemoryMockTicketStore
 from app.services.retrieval_service import RetrievalService
 from app.services.ticket_service import TicketService
 from app.services.validation_service import ValidationService
@@ -88,8 +90,10 @@ app.add_middleware(
 app.state.workflow = workflow
 app.state.ticket_service = ticket_service
 app.state.conversation_history_service = conversation_history_service
+app.state.mock_ticket_store = InMemoryMockTicketStore()
 
 app.include_router(chat_router)
+app.include_router(mock_ticket_router)
 app.include_router(ticket_router)
 
 

@@ -17,7 +17,7 @@ def get_conversation_history_service(request: Request):
 
 
 @router.post("/message", response_model=ChatMessageResponse)
-async def chat_message(
+def chat_message(
     payload: ChatMessageRequest,
     workflow=Depends(get_workflow),
     conversation_history_service=Depends(get_conversation_history_service),

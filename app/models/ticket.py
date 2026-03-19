@@ -30,6 +30,7 @@ class TicketPayload(BaseModel):
     customer_info: CustomerInfo = Field(default_factory=CustomerInfo)
     device_info: dict[str, Any] = Field(default_factory=dict)
     issue_summary: str
+    message_html: str | None = None
     troubleshooting_steps: list[str] = Field(default_factory=list)
     attachments: list[str] = Field(default_factory=list)
     escalation_reason: str | None = None
@@ -43,3 +44,20 @@ class TicketResponse(BaseModel):
     ticket_id: str
     status: str
     message: str
+
+
+class ContactFormSubmission(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    ticket_type: str = Field(default="Sales - Marshall", alias="type")
+    first_name: str = Field(default="", alias="firstName")
+    last_name: str = Field(default="", alias="lastName")
+    email: str = ""
+    phone: str = ""
+    message: str = ""
+
+
+class MockTicketRecord(ContactFormSubmission):
+    ticket_id: str = Field(alias="ticketId")
+    status: str
+    received_at: str = Field(alias="receivedAt")

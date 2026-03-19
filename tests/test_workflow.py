@@ -1,5 +1,6 @@
 import unittest
 
+from app.core.conversation_context import merge_evidence_from_conversation
 from app.graph.workflow import WorkflowDependencies, build_workflow
 from app.models.conversation import (
     ChatMessageRequest,
@@ -23,6 +24,9 @@ from app.services.validation_service import ValidationService
 
 
 class FakeLLMClient:
+    def __init__(self):
+        self.extract_evidence_calls = 0
+
     def classify_intent(self, request, history=None):
         message = request.message
         device_info = request.device_info
@@ -122,6 +126,14 @@ class FakeLLMClient:
     def create_embedding(self, text, dimensions=None):
         return None
 
+    def extract_evidence(self, request, history=None):
+        self.extract_evidence_calls += 1
+        return merge_evidence_from_conversation(
+            current_message=request.message,
+            request_evidence=request.evidence_pack,
+            history=history or [],
+        )
+
 
 class FakeSearchAdapter:
     def __init__(self):
@@ -162,10 +174,11 @@ class FakeTicketAdapter:
 
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
+        self.llm_client = FakeLLMClient()
         self.search_adapter = FakeSearchAdapter()
         self.ticket_adapter = FakeTicketAdapter()
         dependencies = WorkflowDependencies(
-            llm_client=FakeLLMClient(),
+            llm_client=self.llm_client,
             retrieval_service=RetrievalService(self.search_adapter),
             validation_service=ValidationService(),
             ticket_service=TicketService(self.ticket_adapter),
@@ -189,6 +202,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "troubleshooting")
         self.assertEqual(state["next_action"], "continue_troubleshooting")
         self.assertEqual(state["citations"], ["doc-1"])
+        self.assertEqual(self.llm_client.extract_evidence_calls, 0)
 
     def test_unknown_scope_asks_only_scope_questions(self):
         request = ChatMessageRequest(
@@ -252,7 +266,14 @@ class WorkflowTests(unittest.TestCase):
         state = self.workflow.invoke({"request": request.model_dump(mode="json")})
         self.assertEqual(state["current_phase"], "ticket_creation")
         self.assertEqual(state["ticket_response"]["status"], "mock_created")
-        self.assertIn("Unsafe instructions given: no", self.ticket_adapter.last_payload.escalation_summary)
+        self.assertTrue(self.ticket_adapter.last_payload.message_html.startswith("<div>"))
+        self.assertIn("Evidence pack", self.ticket_adapter.last_payload.message_html)
+        self.assertIn("Serial number", self.ticket_adapter.last_payload.message_html)
+        self.assertEqual(self.llm_client.extract_evidence_calls, 1)
+
+    def test_numeric_system_size_kw_is_normalized(self):
+        evidence = EvidencePack.model_validate({"system_size_kw": 10})
+        self.assertEqual(evidence.system_size_kw, "10")
 
     def test_explicit_unsupported_site_collects_evidence_without_retrieval(self):
         request = ChatMessageRequest(
@@ -360,14 +381,7 @@ class WorkflowTests(unittest.TestCase):
                     system_size_kw="10",
                     user_role="customer_owner",
                     ownership_verified=True,
-                    inverter_model="M100A",
                     error_code="E031",
-                    timestamp="2026-03-07T09:30:00Z",
-                    system_topology="ac_coupled",
-                    phase_type="single_phase",
-                    backup_loads_present=False,
-                    recent_changes="No recent changes",
-                    environmental_conditions="Dry, 32C ambient",
                 ),
             ),
         ]
@@ -380,6 +394,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "evidence_collection")
         self.assertEqual(state["classification"]["intent"], IntentType.escalate.value)
         self.assertTrue(state["escalation_active"])
+        self.assertTrue(state["previous_escalation_active"])
         self.assertNotIn("serial_number", state["missing_fields"])
         self.assertEqual(state["next_action"], "collect_evidence")
 
@@ -420,6 +435,44 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "ticket_creation")
         self.assertEqual(state["ticket_response"]["status"], "mock_created")
         self.assertFalse(state["escalation_active"])
+
+    def test_escalation_creates_ticket_when_evidence_ratio_reaches_threshold(self):
+        request = ChatMessageRequest(message="Serial number SN12345")
+        history = [
+            ConversationMessage(
+                role=ConversationRole.user,
+                content="Please escalate this inverter issue",
+            ),
+            ConversationMessage(
+                role=ConversationRole.assistant,
+                content="Please provide the remaining evidence so I can create the ticket.",
+                intent=IntentType.escalate,
+                next_action=TroubleshootingAction.collect_evidence,
+                escalation_active=True,
+                evidence_snapshot=EvidencePack(
+                    site_type="residential",
+                    system_size_kw="10",
+                    user_role="customer_owner",
+                    ownership_verified=True,
+                    inverter_model="M100A",
+                    firmware_version="1.0.4",
+                    error_code="E031",
+                    timestamp="2026-03-07T09:30:00Z",
+                    system_topology="ac_coupled",
+                    phase_type="single_phase",
+                    recent_changes="No recent changes",
+                ),
+            ),
+        ]
+        state = self.workflow.invoke(
+            {
+                "request": request.model_dump(mode="json"),
+                "history": [message.model_dump(mode="json") for message in history],
+            }
+        )
+        self.assertEqual(state["current_phase"], "ticket_creation")
+        self.assertGreaterEqual(state["evidence_completion_ratio"], 0.7)
+        self.assertEqual(state["ticket_response"]["status"], "mock_created")
 
 
 if __name__ == "__main__":

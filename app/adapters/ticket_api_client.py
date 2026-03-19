@@ -2,7 +2,10 @@ import uuid
 
 import httpx
 
-from app.models.ticket import TicketPayload, TicketResponse
+from app.models.ticket import ContactFormSubmission, TicketPayload, TicketResponse
+
+
+DEFAULT_TICKET_TYPE = "Sales - Marshall"
 
 
 class TicketApiClient:
@@ -28,11 +31,68 @@ class TicketApiClient:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         response = httpx.post(
-            f"{self.base_url}/tickets",
-            json=payload.model_dump(),
+            self.base_url,
+            json=ContactFormSubmission(
+                type=DEFAULT_TICKET_TYPE,
+                firstName=payload.customer_info.first_name or "",
+                lastName=payload.customer_info.last_name or "",
+                email=payload.customer_info.email or "",
+                phone=payload.customer_info.phone or "",
+                message=payload.message_html or "<div></div>",
+            ).model_dump(by_alias=True),
             headers=headers,
             timeout=self.timeout_seconds,
         )
         response.raise_for_status()
-        return TicketResponse.model_validate(response.json())
+        return self._parse_ticket_response(response.json())
 
+    def _parse_ticket_response(self, response_json: object) -> TicketResponse:
+        if not isinstance(response_json, dict):
+            raise ValueError("Ticket API response must be a JSON object.")
+
+        response_data = response_json.get("data")
+        payload = response_data if isinstance(response_data, dict) else response_json
+        ticket_id = payload.get("ticket_id") or payload.get("ticketId") or payload.get("id")
+        message = response_json.get("message") or payload.get("message") or "Ticket created."
+        status = self._normalize_ticket_status(
+            response_json=response_json,
+            payload=payload,
+            message=message,
+        )
+
+        if ticket_id is None or status is None:
+            raise ValueError(
+                "Ticket API response missing required ticket fields. "
+                f"Received keys: {sorted(response_json.keys())}"
+            )
+
+        return TicketResponse(
+            ticket_id=str(ticket_id),
+            status=str(status),
+            message=str(message),
+        )
+
+    def _normalize_ticket_status(
+        self,
+        response_json: dict[str, object],
+        payload: dict[str, object],
+        message: object,
+    ) -> str | None:
+        top_level_status = response_json.get("status")
+        if isinstance(top_level_status, str) and top_level_status.strip():
+            return top_level_status.strip()
+
+        payload_status = payload.get("status")
+        if isinstance(payload_status, str) and payload_status.strip():
+            return payload_status.strip()
+
+        if isinstance(message, str) and message.strip():
+            normalized_message = message.strip().lower()
+            if normalized_message in {"success", "ok"}:
+                return "created"
+            return normalized_message.replace(" ", "_")
+
+        if payload.get("id") is not None:
+            return "created"
+
+        return None

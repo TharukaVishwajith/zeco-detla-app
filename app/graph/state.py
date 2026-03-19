@@ -25,4 +25,7 @@ class SupportGraphState(TypedDict, total=False):
     unsupported_reason: str
     missing_scope_fields: list[str]
     escalation_active: bool
+    previous_escalation_active: bool
+    ticket_ready: bool
+    evidence_completion_ratio: float
     errors: NotRequired[list[str]]

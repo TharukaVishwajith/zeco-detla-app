@@ -12,6 +12,5 @@ def get_ticket_service(request: Request):
 
 
 @router.post("/create", response_model=TicketResponse)
-async def create_ticket(payload: TicketCreateRequest, ticket_service=Depends(get_ticket_service)) -> TicketResponse:
+def create_ticket(payload: TicketCreateRequest, ticket_service=Depends(get_ticket_service)) -> TicketResponse:
     return ticket_service.create_from_request(payload)
-

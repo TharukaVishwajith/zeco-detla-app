@@ -6,8 +6,9 @@ from pathlib import Path
 from langchain_core.messages import AIMessage
 from openai import OpenAI
 
-from app.core.conversation_context import latest_escalation_state
+from app.core.conversation_context import latest_escalation_state, merge_evidence_from_conversation
 from app.core.agent_models import (
+    EVIDENCE_EXTRACTION_AGENT_NAME,
     INTENT_AGENT_NAME,
     TROUBLESHOOTING_AGENT_NAME,
     AgentModelConfig,
@@ -25,6 +26,7 @@ from app.models.conversation import (
     TroubleshootingResponse,
     UnsupportedReason,
 )
+from app.models.evidence import EvidencePack
 
 
 logger = logging.getLogger(__name__)
@@ -158,6 +160,46 @@ class OpenAIClient:
         except Exception as exc:  # pragma: no cover - network/API failure path
             logger.warning("OpenAI troubleshooting generation failed, using fallback: %s", exc)
             return fallback
+
+    def extract_evidence(
+        self,
+        request: ChatMessageRequest,
+        history: list[ConversationMessage] | None = None,
+    ) -> EvidencePack:
+        history = history or []
+        heuristic = merge_evidence_from_conversation(
+            current_message=request.message,
+            request_evidence=request.evidence_pack,
+            history=history,
+        )
+        if not self.client:
+            return heuristic
+
+        prompt = self._load_prompt("evidence_prompt.txt")
+        history_block = self._format_history(history)
+        user_prompt = (
+            f"Conversation history (oldest first):\n{history_block}\n\n"
+            f"Current user message:\n{request.message}\n\n"
+            f"Known device info:\n{request.device_info.model_dump_json()}\n\n"
+            f"Customer info:\n{request.customer_info.model_dump_json()}\n\n"
+            f"Structured evidence already provided:\n{request.evidence_pack.model_dump_json()}\n\n"
+            f"Heuristic merged evidence so far:\n{heuristic.model_dump_json()}\n\n"
+            "Return JSON only."
+        )
+
+        try:
+            payload = self._invoke_agent_json(
+                agent_name=EVIDENCE_EXTRACTION_AGENT_NAME,
+                system_prompt=prompt,
+                user_prompt=user_prompt,
+            )
+            if payload is None:
+                raise RuntimeError("LangChain agent unavailable for evidence extraction")
+            extracted = EvidencePack.model_validate(payload)
+            return heuristic.merge(extracted)
+        except Exception as exc:  # pragma: no cover - network/API failure path
+            logger.warning("OpenAI evidence extraction failed, using heuristic fallback: %s", exc)
+            return heuristic
 
     def _grounded_fallback_response(
         self,

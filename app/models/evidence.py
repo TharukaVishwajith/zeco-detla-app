@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 CORE_EVIDENCE_FIELDS = {
@@ -87,6 +87,20 @@ class EvidencePack(BaseModel):
     recent_changes: str | None = None
     environmental_conditions: str | None = None
 
+    @field_validator("system_size_kw", mode="before")
+    @classmethod
+    def normalize_system_size_kw(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return str(value)
+        if isinstance(value, (int, float)):
+            return format(value, "g")
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
+
     def provided_fields(self) -> dict[str, Any]:
         payload = self.model_dump()
         return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
@@ -106,13 +120,23 @@ class EvidencePack(BaseModel):
             merged[key] = value
         return EvidencePack.model_validate(merged)
 
+    def required_core_fields(self) -> list[str]:
+        required = set(CORE_EVIDENCE_FIELDS)
+        if self.battery_model:
+            required.add("battery_firmware_version")
+        return sorted(required)
+
     def missing_core_fields(self) -> list[str]:
         provided = self.provided_fields()
-        missing = [field_name for field_name in CORE_EVIDENCE_FIELDS if field_name not in provided]
-        battery_present = bool(self.battery_model)
-        if battery_present and "battery_firmware_version" not in provided:
-            missing.append("battery_firmware_version")
-        return sorted(missing)
+        return [field_name for field_name in self.required_core_fields() if field_name not in provided]
+
+    def core_completion_ratio(self) -> float:
+        required_fields = self.required_core_fields()
+        if not required_fields:
+            return 1.0
+        provided = self.provided_fields()
+        completed_count = sum(1 for field_name in required_fields if field_name in provided)
+        return completed_count / len(required_fields)
 
     def missing_best_effort_artifacts(self) -> list[str]:
         provided = self.provided_fields()
