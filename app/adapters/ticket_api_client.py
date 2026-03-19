@@ -70,6 +70,7 @@ class TicketApiClient:
             ticket_id=str(ticket_id),
             status=str(status),
             message=str(message),
+            data=response_data if isinstance(response_data, dict) else None,
         )
 
     def _normalize_ticket_status(

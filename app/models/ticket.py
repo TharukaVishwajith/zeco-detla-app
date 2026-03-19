@@ -44,6 +44,7 @@ class TicketResponse(BaseModel):
     ticket_id: str
     status: str
     message: str
+    data: dict[str, Any] | None = None
 
 
 class ContactFormSubmission(BaseModel):

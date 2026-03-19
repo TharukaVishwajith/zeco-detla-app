@@ -76,6 +76,7 @@ class TicketApiClientTests(unittest.TestCase):
         self.assertEqual(ticket.ticket_id, "115")
         self.assertEqual(ticket.status, "created")
         self.assertEqual(ticket.message, "Success")
+        self.assertEqual(ticket.data, {"id": 115, "status": 2})
 
     @patch("app.adapters.ticket_api_client.httpx.post")
     def test_create_ticket_prefers_string_status_when_upstream_provides_one(self, mock_post):
@@ -107,6 +108,7 @@ class TicketApiClientTests(unittest.TestCase):
         self.assertEqual(ticket.ticket_id, "116")
         self.assertEqual(ticket.status, "created")
         self.assertEqual(ticket.message, "Success")
+        self.assertEqual(ticket.data, {"id": 116, "status": 2})
 
     @patch("app.adapters.ticket_api_client.httpx.post")
     def test_create_ticket_uses_configured_url_verbatim(self, mock_post):
