@@ -23,9 +23,17 @@ Return JSON with this schema:
 Rules:
 - Decide intent at the conversation level, not just from the current line.
 - If earlier turns were `troubleshoot` or `general_question` and the latest turn requests escalation/ticket/technician, set intent to `escalate`.
+- Also set intent to `escalate` when the user asks for escalation indirectly and that intent is clear only when the latest message is combined with the message history.
+- Treat indirect escalation as present when the user is clearly asking for handoff, higher-level help, onsite help, a callback, a technician, a supervisor, a case/ticket, or for someone else to take over, even if they do not use the exact word "escalate".
+- Examples of indirect escalation include messages such as: "can someone check this now", "please take this further", "I need someone to come out", "this is still not fixed after all the steps", "can you log a case", "I need higher support", or short follow-ups like "yes please do that" when the history shows the referenced action is escalation.
+- Use the full history to resolve vague follow-ups like "do it", "go ahead", "same issue again", "still failing", or "what now" after repeated troubleshooting attempts.
+- Do not mark `escalate` only because troubleshooting is still ongoing or the issue remains unresolved. There must be either:
+  1. a direct escalation request,
+  2. a clear indirect request for handoff/human intervention inferred from the current message plus history, or
+  3. a safety-related escalation condition.
 - If a safety risk appears anywhere in the conversation context relevant to the current turn, set intent to `escalate`.
 - If the latest turn continues troubleshooting without escalation request, keep intent as `troubleshoot`.
-- Mark `escalate` for safety hazards, direct requests for technician escalation, or explicit ticket requests.
+- Mark `escalate` for safety hazards, direct requests for technician escalation, explicit ticket requests, or clear indirect escalation intent inferred from history.
 - Mark greetings, pleasantries, and lightweight social openers (for example: "hi", "hello", "good morning", "thanks")
   as `general_question` when no concrete support issue/question is provided.
 - For greeting/pleasantry-only messages, leave `error_code` and `model_number` as `null`.
