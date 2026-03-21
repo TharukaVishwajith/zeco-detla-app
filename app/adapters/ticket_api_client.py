@@ -9,9 +9,8 @@ DEFAULT_TICKET_TYPE = "Sales - Marshall"
 
 
 class TicketApiClient:
-    def __init__(self, base_url: str | None, api_key: str | None, timeout_seconds: float):
+    def __init__(self, base_url: str | None, timeout_seconds: float):
         self.base_url = base_url.rstrip("/") if base_url else None
-        self.api_key = api_key
         self.timeout_seconds = timeout_seconds
 
     @property
@@ -26,10 +25,6 @@ class TicketApiClient:
                 message="Ticket created in mock mode because no external ticket API is configured.",
             )
 
-        headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-
         response = httpx.post(
             self.base_url,
             json=ContactFormSubmission(
@@ -40,7 +35,7 @@ class TicketApiClient:
                 phone=payload.customer_info.phone or "",
                 message=payload.message_html or "<div></div>",
             ).model_dump(by_alias=True),
-            headers=headers,
+            headers={"Content-Type": "application/json"},
             timeout=self.timeout_seconds,
         )
         response.raise_for_status()

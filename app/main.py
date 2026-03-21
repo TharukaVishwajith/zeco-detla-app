@@ -53,7 +53,6 @@ retrieval_service = RetrievalService(adapter=opensearch_client)
 ticket_service = TicketService(
     adapter=TicketApiClient(
         base_url=settings.ticket_api_base_url,
-        api_key=settings.ticket_api_key,
         timeout_seconds=settings.ticket_api_timeout_seconds,
     )
 )

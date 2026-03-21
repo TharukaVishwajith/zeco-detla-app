@@ -17,7 +17,7 @@ class TicketApiClientTests(unittest.TestCase):
         response.raise_for_status.return_value = None
         mock_post.return_value = response
 
-        client = TicketApiClient(base_url="https://example.com", api_key=None, timeout_seconds=10)
+        client = TicketApiClient(base_url="https://example.com", timeout_seconds=10)
         payload = TicketPayload(
             customer_info=CustomerInfo(
                 firstName="Jane",
@@ -60,7 +60,6 @@ class TicketApiClientTests(unittest.TestCase):
 
         client = TicketApiClient(
             base_url="https://api.datamarshall.au:8443/public/freshdesk",
-            api_key=None,
             timeout_seconds=10,
         )
         payload = TicketPayload(
@@ -94,7 +93,6 @@ class TicketApiClientTests(unittest.TestCase):
 
         client = TicketApiClient(
             base_url="https://api.datamarshall.au:8443/public/freshdesk",
-            api_key=None,
             timeout_seconds=10,
         )
         payload = TicketPayload(
@@ -123,7 +121,6 @@ class TicketApiClientTests(unittest.TestCase):
 
         client = TicketApiClient(
             base_url="https://api.datamarshall.au:8443/public/website/contactForm",
-            api_key=None,
             timeout_seconds=10,
         )
         payload = TicketPayload(

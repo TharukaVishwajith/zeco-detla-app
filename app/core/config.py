@@ -41,7 +41,6 @@ class Settings:
     opensearch_vector_field: str = field(default_factory=lambda: os.getenv("OPENSEARCH_VECTOR_FIELD", "embeddings"))
 
     ticket_api_base_url: str | None = field(default_factory=lambda: os.getenv("TICKET_API_BASE_URL"))
-    ticket_api_key: str | None = field(default_factory=lambda: os.getenv("TICKET_API_KEY"))
     ticket_api_timeout_seconds: float = field(
         default_factory=lambda: float(os.getenv("TICKET_API_TIMEOUT_SECONDS", "30"))
     )

@@ -368,7 +368,6 @@ These environment variables affect external integration behavior:
 - `OPENAI_API_KEY`: required for LLM responses
 - `OPENSEARCH_HOST`: enables retrieval and populated `retrieved_documents`
 - `TICKET_API_BASE_URL`: enables real ticket creation when the chat workflow escalates
-- `TICKET_API_KEY`: optional bearer token for the external ticket API used by the chat workflow
 - `DYNAMODB_TABLE_NAME`: enables persisted conversation history by `request_id`
 - `CONVERSATION_HISTORY_MAX_MESSAGES`: max stored turns loaded into each request
 
