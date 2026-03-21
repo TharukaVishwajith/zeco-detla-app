@@ -84,18 +84,6 @@ class FakeLLMClient:
             )
         else:
             intent = IntentType.troubleshoot
-        if support_scope_status == SupportScopeStatus.unknown and intent != IntentType.general_question:
-            labels = {
-                "site_type": "Site type",
-                "system_size_kw": "System size (kW)",
-                "user_role": "User role",
-                "ownership_verified": "Ownership or service responsibility confirmed",
-            }
-            system_message = (
-                "## Site Eligibility Check\n\n"
-                "Before troubleshooting, please confirm:\n"
-                + "\n".join(f"- {labels[field_name]}" for field_name in missing_scope_fields)
-            )
         return IntentClassification(
             intent=intent,
             device_type=device_info.device_type if device_info else DeviceType.inverter,
@@ -204,15 +192,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["citations"], ["doc-1"])
         self.assertEqual(self.llm_client.extract_evidence_calls, 0)
 
-    def test_unknown_scope_asks_only_scope_questions(self):
+    def test_unknown_scope_continues_to_troubleshooting(self):
         request = ChatMessageRequest(
             message="My inverter shows E031 after restart",
             device_info=DeviceInfo(device_type=DeviceType.inverter, model_number="M100A"),
         )
         state = self.workflow.invoke({"request": request.model_dump(mode="json")})
-        self.assertEqual(state["current_phase"], "intake")
-        self.assertEqual(state["next_action"], "ask_question")
-        self.assertIn("## Site Eligibility Check", state["response_text"])
+        self.assertEqual(state["current_phase"], "troubleshooting")
+        self.assertEqual(state["next_action"], "continue_troubleshooting")
+        self.assertNotIn("system_message", state)
         self.assertEqual(state["missing_scope_fields"], ["site_type", "system_size_kw", "user_role", "ownership_verified"])
 
     def test_initial_message_scope_evidence_skips_site_eligibility_prompt(self):

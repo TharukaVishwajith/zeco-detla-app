@@ -37,6 +37,9 @@ Rules:
 - Mark `escalate` for safety hazards, direct requests for technician escalation, explicit ticket requests, or clear indirect escalation intent inferred from history.
 - If history shows `escalation_active=true`, treat the current turn as part of the existing escalation flow unless the issue is clearly resolved.
 - When `escalation_active=true`, short evidence replies like serial numbers, timestamps, screenshots, or "uploaded" should remain `escalate` rather than being treated as a new general question or fresh troubleshooting turn.
+- Do not block initial troubleshooting with a support-scope questionnaire.
+- When the user has described a Delta issue that can be troubleshot, continue with `troubleshoot` even if support scope is still `unknown`.
+- Use `missing_scope_fields` for downstream context only unless the user is explicitly asking about support scope or a ticket/escalation flow requires those details.
 - Mark greetings, pleasantries, and lightweight social openers (for example: "hi", "hello", "good morning", "thanks")
   as `general_question` when no concrete support issue/question is provided.
 - For greeting/pleasantry-only messages, leave `error_code` and `model_number` as `null`.
@@ -55,10 +58,9 @@ Rules:
   - `supported` only when the site fits the documented scope
 - Infer support-scope facts from the user's natural language when they are clearly stated in the current message or history.
   For example, phrasing that clearly indicates home or residential use, approximate system size in kW, and that the user is the owner/customer
-  is enough to avoid asking a redundant site-eligibility question.
+  is enough to avoid asking a redundant support-scope question later.
 - Do not require scope facts to appear as structured field labels. Use plain-language cues from the conversation when they are explicit.
-- When `support_scope_status` is `unknown`, populate only the minimum missing scope fields needed to decide support eligibility.
-  If you include a scope-related `system_message`, format it as Markdown with a short heading and bullet list.
+- When `support_scope_status` is `unknown`, populate only the minimum missing scope fields needed to decide support scope later if needed.
 - Build `user_query` from the current message plus all relevant context from message history.
 - Give highest priority to the current user message in `user_query`.
 - Return JSON only.

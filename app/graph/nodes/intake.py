@@ -1,15 +1,6 @@
 from app.core.conversation_context import latest_escalation_state, latest_evidence_snapshot
 from app.models.conversation import ChatMessageRequest, ConversationMessage, IntentType, SupportScopeStatus
-from app.models.evidence import format_markdown_field_list
 
-
-def _build_scope_question(missing_scope_fields: list[str]) -> str:
-    fields = missing_scope_fields or ["site_type", "system_size_kw", "user_role", "ownership_verified"]
-    return (
-        "## Site Eligibility Check\n\n"
-        "Before troubleshooting, please confirm:\n"
-        f"{format_markdown_field_list(fields)}"
-    )
 
 def build_intake_node(llm_client):
     def intake_node(state: dict) -> dict:
@@ -50,8 +41,11 @@ def build_intake_node(llm_client):
         system_message = classification.system_message
         if escalation_active:
             system_message = None
-        elif classification.support_scope_status == SupportScopeStatus.unknown and not system_message:
-            system_message = _build_scope_question(classification.missing_scope_fields)
+        elif (
+            classification.intent != IntentType.general_question
+            and classification.support_scope_status == SupportScopeStatus.unknown
+        ):
+            system_message = None
         if system_message:
             output["system_message"] = system_message
             output["response_text"] = system_message
