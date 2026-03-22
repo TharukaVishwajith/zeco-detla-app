@@ -225,6 +225,7 @@ class WorkflowTests(unittest.TestCase):
                 timestamp="2026-03-07T09:30:00Z",
                 backup_loads_present=False,
                 recent_changes="No recent changes",
+                additional_info="Issue still present after restart and basic checks.",
             ),
         )
         state = self.workflow.invoke({"request": request.model_dump(mode="json")})
@@ -233,6 +234,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(self.ticket_adapter.last_payload.message_html.startswith("<div>"))
         self.assertIn("Evidence pack", self.ticket_adapter.last_payload.message_html)
         self.assertIn("Serial number", self.ticket_adapter.last_payload.message_html)
+        self.assertIn("Additional info", self.ticket_adapter.last_payload.message_html)
         self.assertEqual(self.llm_client.extract_evidence_calls, 1)
 
     def test_removed_fields_are_ignored(self):
@@ -331,6 +333,29 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state.get("history"), [])
         self.assertIn("My inverter shows E031 after restart", self.search_adapter.last_query)
         self.assertEqual(state["merged_evidence_pack"]["serial_number"], "SN12345")
+
+    def test_merge_evidence_preserves_explicit_additional_info(self):
+        merged = merge_evidence_from_conversation(
+            current_message="Still the same after the restart, and it now trips every evening.",
+            request_evidence=EvidencePack(additional_info="Issue persists after restart and trips every evening."),
+            history=[
+                ConversationMessage(
+                    role=ConversationRole.user,
+                    content="My inverter shows E031 after restart.",
+                ),
+                ConversationMessage(
+                    role=ConversationRole.user,
+                    content="We had a grid outage yesterday before this started.",
+                ),
+                ConversationMessage(
+                    role=ConversationRole.user,
+                    content="Serial number SN12345",
+                ),
+            ],
+        )
+
+        self.assertEqual(merged.serial_number, "SN12345")
+        self.assertEqual(merged.additional_info, "Issue persists after restart and trips every evening.")
 
     def test_escalation_follow_up_stays_on_evidence_collection(self):
         request = ChatMessageRequest(message="Serial number SN12345")

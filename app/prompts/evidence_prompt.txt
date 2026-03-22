@@ -10,6 +10,9 @@ Rules:
   - `user_role`: `customer_owner | licensed_installer`
 - Extract booleans only when the text clearly says yes/no, present/not present, provided/not provided.
 - Preserve exact codes, model numbers, serial numbers, timestamps, versions, and free-text issue context when present.
+- `additional_info` should be a concise summary of issue-related context from the conversation history and current user message that helps diagnosis or escalation but does not fit the other evidence fields.
+- For `additional_info`, prefer details such as symptoms, when the issue started, what has already been tried, or relevant narrative context that is not already captured elsewhere in the evidence pack.
+- Do not repeat values in `additional_info` when they are already captured cleanly in another field unless that repetition is needed to preserve meaning.
 - Leave unknown scalar fields as `null`.
 - Leave unknown list fields as empty arrays.
 - Use the heuristic merged evidence as helpful context, but only return fields you can support from the conversation or structured inputs.

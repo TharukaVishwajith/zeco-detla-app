@@ -3,6 +3,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+TEXT_ACCUMULATION_SEPARATOR = " | "
+ACCUMULATED_TEXT_FIELDS = {"additional_info"}
 CORE_EVIDENCE_FIELDS = {
     "user_role",
     "ownership_verified",
@@ -45,6 +47,7 @@ FIELD_LABELS = {
     "logs": "Logs",
     "screenshot_provided": "App or portal screenshot",
     "app_or_portal_version": "App or portal version",
+    "additional_info": "Additional info",
     "photo_checklist_completed": "Photo checklist",
     "log_export_steps_provided": "Log export steps provided",
     "log_time_period": "Log time period",
@@ -71,6 +74,7 @@ class EvidencePack(BaseModel):
     photos: list[str] = Field(default_factory=list)
     logs: list[str] = Field(default_factory=list)
     recent_changes: str | None = None
+    additional_info: str | None = None
 
     def provided_fields(self) -> dict[str, Any]:
         payload = self.model_dump()
@@ -83,6 +87,9 @@ class EvidencePack(BaseModel):
         merged = self.model_dump()
         for key, value in other.model_dump().items():
             if value in (None, "", [], {}):
+                continue
+            if key in ACCUMULATED_TEXT_FIELDS:
+                merged[key] = _merge_text_fragments(merged.get(key), value)
                 continue
             if isinstance(value, list):
                 combined = [*merged.get(key, []), *value]
@@ -132,3 +139,24 @@ def format_markdown_field_list(field_names: list[str]) -> str:
     if not field_names:
         return ""
     return "\n".join(f"- {humanize_evidence_field(field_name)}" for field_name in field_names)
+
+
+def _merge_text_fragments(*values: str | None) -> str | None:
+    fragments: list[str] = []
+    for value in values:
+        if value in (None, ""):
+            continue
+        for fragment in str(value).split(TEXT_ACCUMULATION_SEPARATOR):
+            normalized = " ".join(fragment.split()).strip()
+            if not normalized:
+                continue
+            normalized_key = normalized.casefold()
+            if any(
+                normalized_key == existing.casefold()
+                or normalized_key in existing.casefold()
+                or existing.casefold() in normalized_key
+                for existing in fragments
+            ):
+                continue
+            fragments.append(normalized)
+    return TEXT_ACCUMULATION_SEPARATOR.join(fragments) or None

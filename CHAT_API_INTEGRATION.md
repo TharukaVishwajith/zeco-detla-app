@@ -120,6 +120,7 @@ Important behavior:
       "https://files.example.com/log-1.csv"
     ],
     "recent_changes": "Grid outage yesterday",
+    "additional_info": "Issue started after a restart and still persists after basic checks.",
   },
   "request_ticket": false,
   "issue_resolved": false,
@@ -139,6 +140,7 @@ Everything else is optional, but sending customer, device, and evidence data mat
 - `user_id`: Optional correlation key from the external app. It is not used as authentication.
 - `customer_info.firstName` and `customer_info.lastName`: Accepted in camelCase. The backend also derives `name` automatically when possible.
 - `device_info.device_type`: Supported values are `inverter`, `battery`, `pv`, `monitoring`, `unknown`.
+- `evidence_pack.additional_info`: Optional free-text issue context that is relevant for diagnosis or escalation but does not fit the structured evidence fields. This can be built from prior chat history and the latest user message.
 - `request_ticket`: Signals that the user wants escalation through the chat workflow. If the AI workflow creates a ticket, it is returned inside the chat response.
 - `issue_resolved`: Signals that the issue is resolved.
 - `top_k`: Optional retrieval override for knowledge-base search depth.
