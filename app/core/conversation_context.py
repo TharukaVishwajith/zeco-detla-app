@@ -4,17 +4,6 @@ from app.models.conversation import ConversationMessage, ConversationRole, Troub
 from app.models.evidence import EvidencePack
 
 
-SITE_TYPE_PATTERNS = {
-    "residential": "residential",
-    "home": "residential",
-    "small commercial": "small_commercial",
-    "light commercial": "small_commercial",
-    "commercial": "commercial",
-    "industrial": "industrial",
-    "utility-scale": "utility_scale",
-    "utility scale": "utility_scale",
-    "embedded network": "embedded_network",
-}
 USER_ROLE_PATTERNS = {
     "licensed installer": "licensed_installer",
     "installer": "licensed_installer",
@@ -22,16 +11,6 @@ USER_ROLE_PATTERNS = {
     "customer": "customer_owner",
     "owner": "customer_owner",
     "homeowner": "customer_owner",
-}
-SYSTEM_TOPOLOGY_PATTERNS = {
-    "ac-coupled": "ac_coupled",
-    "ac coupled": "ac_coupled",
-    "dc-coupled": "dc_coupled",
-    "dc coupled": "dc_coupled",
-}
-PHASE_TYPE_PATTERNS = {
-    "single phase": "single_phase",
-    "three phase": "three_phase",
 }
 TRUE_PATTERNS = ("yes", "present", "available", "provided", "true")
 FALSE_PATTERNS = ("no", "not available", "unavailable", "false")
@@ -82,7 +61,6 @@ def merge_evidence_from_conversation(
 
 
 def extract_message_evidence(text: str) -> EvidencePack:
-    size_match = re.search(r"\b(\d+(?:\.\d+)?)\s?k[wW]\b", text)
     inverter_match = re.search(r"\binverter model[:\s]+([A-Za-z0-9_-]+)\b", text, re.IGNORECASE)
     battery_match = re.search(r"\bbattery model[:\s]+([A-Za-z0-9_-]+)\b", text, re.IGNORECASE)
     serial_match = re.search(r"\bserial(?: number)?[:\s]+([A-Za-z0-9_-]+)\b", text, re.IGNORECASE)
@@ -108,8 +86,6 @@ def extract_message_evidence(text: str) -> EvidencePack:
         screenshot_provided = _parse_bool(text, ("attached", "uploaded", "provided"), ("not available", "unable", "cannot"))
 
     return EvidencePack(
-        site_type=_match_mapping(text, SITE_TYPE_PATTERNS),
-        system_size_kw=size_match.group(1) if size_match else None,
         inverter_model=inverter_match.group(1) if inverter_match else None,
         serial_number=serial_match.group(1) if serial_match else None,
         firmware_version=firmware_match.group(1) if firmware_match else None,
@@ -117,10 +93,8 @@ def extract_message_evidence(text: str) -> EvidencePack:
         battery_firmware_version=battery_firmware_match.group(1) if battery_firmware_match else None,
         error_code=error_match.group(1).replace(" ", "-") if error_match else None,
         timestamp=timestamp_match.group(1) if timestamp_match else None,
-        system_topology=_match_mapping(text, SYSTEM_TOPOLOGY_PATTERNS),
         user_role=_match_mapping(text, USER_ROLE_PATTERNS),
         ownership_verified=ownership_verified,
-        phase_type=_match_mapping(text, PHASE_TYPE_PATTERNS),
         backup_loads_present=backup_loads_present,
         app_or_portal_version=app_match.group(1) if app_match else None,
         screenshot_available=screenshot_available,

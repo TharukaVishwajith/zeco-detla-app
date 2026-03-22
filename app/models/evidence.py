@@ -1,11 +1,9 @@
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 CORE_EVIDENCE_FIELDS = {
-    "site_type",
-    "system_size_kw",
     "user_role",
     "ownership_verified",
     "inverter_model",
@@ -13,11 +11,8 @@ CORE_EVIDENCE_FIELDS = {
     "firmware_version",
     "error_code",
     "timestamp",
-    "system_topology",
-    "phase_type",
     "backup_loads_present",
     "recent_changes",
-    "environmental_conditions",
 }
 BEST_EFFORT_ARTIFACT_FIELDS = {
     "photos",
@@ -35,8 +30,6 @@ PHOTO_CHECKLIST_FIELDS = {
     "indicator_leds_or_display",
 }
 FIELD_LABELS = {
-    "site_type": "Site type",
-    "system_size_kw": "System size (kW)",
     "user_role": "User role",
     "ownership_verified": "Ownership or service responsibility confirmed",
     "inverter_model": "Inverter model",
@@ -46,11 +39,8 @@ FIELD_LABELS = {
     "battery_firmware_version": "Battery firmware version",
     "error_code": "Exact error or alarm code",
     "timestamp": "Date and time of the fault",
-    "system_topology": "System topology",
-    "phase_type": "Phase type",
     "backup_loads_present": "Backup loads present",
     "recent_changes": "Recent changes or events",
-    "environmental_conditions": "Environmental conditions",
     "photos": "Photos",
     "logs": "Logs",
     "screenshot_provided": "App or portal screenshot",
@@ -62,8 +52,6 @@ FIELD_LABELS = {
 
 
 class EvidencePack(BaseModel):
-    site_type: str | None = None
-    system_size_kw: str | None = None
     inverter_model: str | None = None
     serial_number: str | None = None
     firmware_version: str | None = None
@@ -71,10 +59,8 @@ class EvidencePack(BaseModel):
     battery_firmware_version: str | None = None
     error_code: str | None = None
     timestamp: str | None = None
-    system_topology: str | None = None
     user_role: str | None = None
     ownership_verified: bool | None = None
-    phase_type: str | None = None
     backup_loads_present: bool | None = None
     app_or_portal_version: str | None = None
     screenshot_available: bool | None = None
@@ -85,21 +71,6 @@ class EvidencePack(BaseModel):
     photos: list[str] = Field(default_factory=list)
     logs: list[str] = Field(default_factory=list)
     recent_changes: str | None = None
-    environmental_conditions: str | None = None
-
-    @field_validator("system_size_kw", mode="before")
-    @classmethod
-    def normalize_system_size_kw(cls, value: Any) -> Any:
-        if value is None:
-            return None
-        if isinstance(value, bool):
-            return str(value)
-        if isinstance(value, (int, float)):
-            return format(value, "g")
-        if isinstance(value, str):
-            stripped = value.strip()
-            return stripped or None
-        return value
 
     def provided_fields(self) -> dict[str, Any]:
         payload = self.model_dump()

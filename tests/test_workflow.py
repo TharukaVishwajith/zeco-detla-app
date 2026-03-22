@@ -38,38 +38,23 @@ class FakeLLMClient:
         history_text = " ".join(item.content.lower() for item in (history or []))
         missing_info = []
         system_message = None
-        missing_scope_fields = []
         has_domain_context = any(
             term in f"{history_text} {lowered}" for term in ("inverter", "battery", "pv", "monitor", "error", "fault")
         )
         is_brief = 0 < len(lowered.split()) <= 4
-        support_scope_status = SupportScopeStatus.supported
+        support_scope_status = SupportScopeStatus.unknown
         unsupported_reason = None
-        if request.evidence_pack.system_size_kw == "80" or "80 kw" in lowered:
+        if any(term in lowered for term in ("80 kw", "80kw", "over 30 kw", "greater than 30 kw", "above 30 kw")):
             support_scope_status = SupportScopeStatus.unsupported
             unsupported_reason = UnsupportedReason.site_capacity_exceeded
-        elif "industrial" in lowered:
+        elif "industrial" in lowered or "major commercial" in lowered:
             support_scope_status = SupportScopeStatus.unsupported
             unsupported_reason = UnsupportedReason.industrial_site
-        elif "home use" in lowered and "10kw" in lowered:
+        elif any(term in lowered for term in ("utility-scale", "utility scale", "embedded network")):
+            support_scope_status = SupportScopeStatus.unsupported
+            unsupported_reason = UnsupportedReason.utility_scale_or_embedded_network
+        elif any(term in lowered for term in ("home", "residential", "home use", "my system", "our system", "owner", "customer owner")):
             support_scope_status = SupportScopeStatus.supported
-        elif not all(
-            (
-                request.evidence_pack.site_type,
-                request.evidence_pack.system_size_kw,
-                request.evidence_pack.user_role,
-                request.evidence_pack.ownership_verified is not None,
-            )
-        ):
-            support_scope_status = SupportScopeStatus.unknown
-            if not request.evidence_pack.site_type:
-                missing_scope_fields.append("site_type")
-            if not request.evidence_pack.system_size_kw:
-                missing_scope_fields.append("system_size_kw")
-            if not request.evidence_pack.user_role:
-                missing_scope_fields.append("user_role")
-            if request.evidence_pack.ownership_verified is None:
-                missing_scope_fields.append("ownership_verified")
         if "ticket" in lowered:
             intent = IntentType.escalate
         elif is_brief and not has_domain_context:
@@ -94,7 +79,7 @@ class FakeLLMClient:
             missing_info=missing_info,
             support_scope_status=support_scope_status,
             unsupported_reason=unsupported_reason,
-            missing_scope_fields=missing_scope_fields,
+            missing_scope_fields=[],
             system_message=system_message,
         )
 
@@ -179,8 +164,6 @@ class WorkflowTests(unittest.TestCase):
             message="My inverter shows E031 after restart",
             device_info=DeviceInfo(device_type=DeviceType.inverter, model_number="M100A"),
             evidence_pack=EvidencePack(
-                site_type="residential",
-                system_size_kw="10",
                 user_role="customer_owner",
                 ownership_verified=True,
             ),
@@ -201,7 +184,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "troubleshooting")
         self.assertEqual(state["next_action"], "continue_troubleshooting")
         self.assertNotIn("system_message", state)
-        self.assertEqual(state["missing_scope_fields"], ["site_type", "system_size_kw", "user_role", "ownership_verified"])
+        self.assertEqual(state["missing_scope_fields"], [])
 
     def test_initial_message_scope_evidence_skips_site_eligibility_prompt(self):
         request = ChatMessageRequest(
@@ -218,8 +201,6 @@ class WorkflowTests(unittest.TestCase):
             message="There is smoke coming from the inverter enclosure",
             device_info=DeviceInfo(device_type=DeviceType.inverter, model_number="M100A"),
             evidence_pack=EvidencePack(
-                site_type="residential",
-                system_size_kw="10",
                 user_role="customer_owner",
                 ownership_verified=True,
             ),
@@ -235,8 +216,6 @@ class WorkflowTests(unittest.TestCase):
             request_ticket=True,
             device_info=DeviceInfo(device_type=DeviceType.inverter, model_number="M100A"),
             evidence_pack=EvidencePack(
-                site_type="residential",
-                system_size_kw="10",
                 user_role="customer_owner",
                 ownership_verified=True,
                 inverter_model="M100A",
@@ -244,11 +223,8 @@ class WorkflowTests(unittest.TestCase):
                 firmware_version="1.0.4",
                 error_code="E031",
                 timestamp="2026-03-07T09:30:00Z",
-                system_topology="ac_coupled",
-                phase_type="single_phase",
                 backup_loads_present=False,
                 recent_changes="No recent changes",
-                environmental_conditions="Dry, 32C ambient",
             ),
         )
         state = self.workflow.invoke({"request": request.model_dump(mode="json")})
@@ -259,18 +235,30 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("Serial number", self.ticket_adapter.last_payload.message_html)
         self.assertEqual(self.llm_client.extract_evidence_calls, 1)
 
-    def test_numeric_system_size_kw_is_normalized(self):
-        evidence = EvidencePack.model_validate({"system_size_kw": 10})
-        self.assertEqual(evidence.system_size_kw, "10")
+    def test_removed_fields_are_ignored(self):
+        evidence = EvidencePack.model_validate(
+            {
+                "legacy_scope_field": "residential",
+                "legacy_system_field": 10,
+                "legacy_topology_field": "ac_coupled",
+                "legacy_phase_field": "single_phase",
+                "legacy_environment_field": "Dry, 32C ambient",
+                "user_role": "customer_owner",
+            }
+        )
+        self.assertEqual(evidence.user_role, "customer_owner")
+        self.assertNotIn("legacy_scope_field", evidence.model_dump())
+        self.assertNotIn("legacy_system_field", evidence.model_dump())
+        self.assertNotIn("legacy_topology_field", evidence.model_dump())
+        self.assertNotIn("legacy_phase_field", evidence.model_dump())
+        self.assertNotIn("legacy_environment_field", evidence.model_dump())
 
     def test_explicit_unsupported_site_collects_evidence_without_retrieval(self):
         request = ChatMessageRequest(
-            message="Please create a ticket for inverter fault E031",
+            message="Please create a ticket for the 80 kW industrial inverter site with fault E031",
             request_ticket=True,
             device_info=DeviceInfo(device_type=DeviceType.inverter, model_number="M100A"),
             evidence_pack=EvidencePack(
-                site_type="commercial",
-                system_size_kw="80",
                 user_role="licensed_installer",
                 ownership_verified=True,
             ),
@@ -285,8 +273,6 @@ class WorkflowTests(unittest.TestCase):
             message="This is an 80 kW industrial inverter site with fault E031",
             device_info=DeviceInfo(device_type=DeviceType.inverter, model_number="M100A"),
             evidence_pack=EvidencePack(
-                site_type="industrial",
-                system_size_kw="80",
                 user_role="licensed_installer",
                 ownership_verified=True,
             ),
@@ -320,8 +306,6 @@ class WorkflowTests(unittest.TestCase):
                 content="Follow the documented restart sequence from the retrieved Delta KB article.",
                 escalation_active=False,
                 evidence_snapshot=EvidencePack(
-                    site_type="residential",
-                    system_size_kw="10",
                     user_role="customer_owner",
                     ownership_verified=True,
                     inverter_model="M100A",
@@ -329,11 +313,8 @@ class WorkflowTests(unittest.TestCase):
                     firmware_version="1.0.4",
                     error_code="E031",
                     timestamp="2026-03-07T09:30:00Z",
-                    system_topology="ac_coupled",
-                    phase_type="single_phase",
                     backup_loads_present=False,
                     recent_changes="No recent changes",
-                    environmental_conditions="Dry, 32C ambient",
                 ),
             ),
         ]
@@ -365,8 +346,6 @@ class WorkflowTests(unittest.TestCase):
                 next_action=TroubleshootingAction.collect_evidence,
                 escalation_active=True,
                 evidence_snapshot=EvidencePack(
-                    site_type="residential",
-                    system_size_kw="10",
                     user_role="customer_owner",
                     ownership_verified=True,
                     error_code="E031",
@@ -400,17 +379,12 @@ class WorkflowTests(unittest.TestCase):
                 next_action=TroubleshootingAction.collect_evidence,
                 escalation_active=True,
                 evidence_snapshot=EvidencePack(
-                    site_type="residential",
-                    system_size_kw="10",
                     user_role="customer_owner",
                     ownership_verified=True,
                     inverter_model="M100A",
                     error_code="E031",
-                    system_topology="ac_coupled",
-                    phase_type="single_phase",
                     backup_loads_present=False,
                     recent_changes="No recent changes",
-                    environmental_conditions="Dry, 32C ambient",
                 ),
             ),
         ]
@@ -438,16 +412,12 @@ class WorkflowTests(unittest.TestCase):
                 next_action=TroubleshootingAction.collect_evidence,
                 escalation_active=True,
                 evidence_snapshot=EvidencePack(
-                    site_type="residential",
-                    system_size_kw="10",
                     user_role="customer_owner",
                     ownership_verified=True,
                     inverter_model="M100A",
                     firmware_version="1.0.4",
                     error_code="E031",
                     timestamp="2026-03-07T09:30:00Z",
-                    system_topology="ac_coupled",
-                    phase_type="single_phase",
                     recent_changes="No recent changes",
                 ),
             ),

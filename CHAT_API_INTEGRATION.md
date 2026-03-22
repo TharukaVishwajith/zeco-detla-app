@@ -96,17 +96,13 @@ Important behavior:
     "product_family": "Delta RPI"
   },
   "evidence_pack": {
-    "site_type": "residential",
-    "system_size_kw": "8.4",
     "inverter_model": "M50A",
     "serial_number": "INV-001122",
     "firmware_version": "1.4.2",
     "error_code": "E031",
     "timestamp": "2026-03-12T08:30:00Z",
-    "system_topology": "single inverter",
     "user_role": "owner",
     "ownership_verified": true,
-    "phase_type": "single_phase",
     "backup_loads_present": false,
     "app_or_portal_version": "2.18.0",
     "screenshot_available": true,
@@ -124,7 +120,6 @@ Important behavior:
       "https://files.example.com/log-1.csv"
     ],
     "recent_changes": "Grid outage yesterday",
-    "environmental_conditions": "Heavy rain overnight"
   },
   "request_ticket": false,
   "issue_resolved": false,
