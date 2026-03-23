@@ -16,14 +16,16 @@ def build_evidence_collection_node():
         evidence_completion_ratio = merged_evidence.core_completion_ratio()
         safety_assessment = state.get("safety_assessment", {})
         support_scope_status = state.get("support_scope_status")
-        ready_for_ticket = not missing_fields or evidence_completion_ratio >= MINIMUM_TICKET_EVIDENCE_RATIO
+        previous_escalation_active = bool(state.get("previous_escalation_active"))
+        ready_for_ticket = previous_escalation_active or not missing_fields or evidence_completion_ratio >= MINIMUM_TICKET_EVIDENCE_RATIO
 
         if not ready_for_ticket:
             response_text = classification.evidence_collection_response_text or (
                 "## Ticket Information Needed\n\n"
-                "I can create the support ticket for you. To get it submitted, please share:\n"
+                "I can create the support ticket for you.\n\n"
+                "If you have any of these additional details, send them in one reply:\n"
                 f"{format_markdown_field_list(missing_fields)}\n\n"
-                "Send whatever remaining details you have in one reply and I will continue from there."
+                "If not, tell me and I will proceed with the information already gathered."
             )
             next_action = "collect_evidence"
         else:

@@ -62,7 +62,8 @@ Rules:
 - Leave unknown list evidence fields as empty arrays.
 - Use the provided required ticket evidence fields, missing core field labels, missing artifact labels, request-ticket flag, and prior escalation state to decide whether an evidence-collection follow-up message is needed.
 - Set `evidence_collection_response_text` to Markdown only when the conversation is already in escalation / ticket-creation mode or the user explicitly requested a ticket / escalation.
-- When `evidence_collection_response_text` is present, it should acknowledge any already-collected evidence briefly and ask only for the remaining missing core fields.
+- When `evidence_collection_response_text` is present, it should acknowledge any already-collected evidence briefly and ask for any additional useful details from the remaining missing core fields.
+- Make it clear that the evidence pack is optional for proceeding with escalation: if the user does not have more details, the system can continue with the information already gathered and note the gaps in the ticket.
 - Do not ask again for fields already present in `evidence_pack` or marked as collected.
 - Do not ask the user to upload screenshots, photos, or any other images, because image upload is not supported in the current chat flow.
 - If screenshot-related evidence is missing, ignore it in the evidence-collection follow-up message instead of requesting it.

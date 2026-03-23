@@ -255,25 +255,28 @@ class OpenAIClient:
                 "## Immediate Safety Escalation\n\n"
                 "A safety hazard was detected. Do not continue operating the equipment.\n\n"
                 f"{progress_text}"
-                "I can help create the support ticket, but I still need:\n"
+                "I can help create the support ticket.\n\n"
+                "If you have any of these additional details, send them in one reply:\n"
                 f"{field_list}\n\n"
-                "Send whatever remaining details you have in one reply and I will keep the escalation moving."
+                "If not, tell me and I will proceed with the information already gathered."
             )
         if support_scope_status == "unsupported":
             return (
                 "## Unsupported Site Escalation\n\n"
                 "This site is outside Delta AI support scope.\n\n"
                 f"{progress_text}"
-                "I can still help collect what is needed for the escalation ticket. Please share:\n"
+                "I can still help collect what is needed for the escalation ticket.\n\n"
+                "If you have any of these additional details, send them in one reply:\n"
                 f"{field_list}\n\n"
-                "Send whatever remaining details you have in one reply and I will continue from there."
+                "If not, tell me and I will proceed with the information already gathered."
             )
         return (
             "## Ticket Information Needed\n\n"
             f"{progress_text}"
-            "I can create the support ticket for you. To get it submitted, please share:\n"
+            "I can create the support ticket for you.\n\n"
+            "If you have any of these additional details, send them in one reply:\n"
             f"{field_list}\n\n"
-            "Send whatever remaining details you have in one reply and I will continue from there."
+            "If not, tell me and I will proceed with the information already gathered."
         )
 
     def _normalize_evidence_collection_response_text(

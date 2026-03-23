@@ -6,6 +6,7 @@ from typing_extensions import NotRequired, TypedDict
 class SupportGraphState(TypedDict, total=False):
     request: dict[str, Any]
     history: list[dict[str, Any]]
+    source_history: list[dict[str, Any]]
     user_query: str
     classification: dict[str, Any]
     merged_evidence_pack: dict[str, Any]

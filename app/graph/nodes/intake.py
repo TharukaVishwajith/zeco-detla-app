@@ -26,6 +26,7 @@ def build_intake_node(llm_client):
             "classification": classification.model_dump(mode="json"),
             "current_phase": "intake",
             "history": [],
+            "source_history": [message.model_dump(mode="json") for message in history],
             "merged_evidence_pack": merged_evidence.model_dump(mode="json", exclude_none=True),
             "missing_fields": merged_evidence.missing_core_fields(),
             "missing_artifacts": merged_evidence.missing_best_effort_artifacts(),

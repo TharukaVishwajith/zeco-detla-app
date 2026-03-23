@@ -3,6 +3,7 @@ import unittest
 from app.adapters.openai_client import OpenAIClient
 from app.models.conversation import (
     DeviceType,
+    EvidencePack,
     IntentClassification,
     IntentType,
     RetrievedDocument,
@@ -45,6 +46,18 @@ class OpenAIClientResponseTests(unittest.TestCase):
         self.assertIn("1. The model number", response.response_text)
         self.assertIn("2. The exact error code or fault text", response.response_text)
         self.assertIn("Reply with those details", response.response_text)
+
+    def test_fallback_evidence_collection_response_keeps_evidence_optional(self):
+        response_text = self.client._fallback_evidence_collection_response(  # noqa: SLF001 - validating helper output directly
+            merged_evidence=EvidencePack(error_code="E031"),
+            missing_fields=["serial_number", "timestamp"],
+            support_scope_status=SupportScopeStatus.unknown.value,
+            safety_assessment={"escalate_immediately": False},
+        )
+
+        self.assertIn("I can create the support ticket for you.", response_text)
+        self.assertIn("If you have any of these additional details", response_text)
+        self.assertIn("If not, tell me and I will proceed with the information already gathered.", response_text)
 
     def test_grounded_fallback_with_docs_uses_simple_step_format(self):
         classification = IntentClassification(

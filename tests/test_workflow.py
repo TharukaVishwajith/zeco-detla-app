@@ -39,25 +39,28 @@ def build_fake_evidence_collection_response(
             "## Immediate Safety Escalation\n\n"
             "A safety hazard was detected. Do not continue operating the equipment.\n\n"
             f"{progress_text}"
-            "I can help create the support ticket, but I still need:\n"
+            "I can help create the support ticket.\n\n"
+            "If you have any of these additional details, send them in one reply:\n"
             f"{field_list}\n\n"
-            "Send whatever remaining details you have in one reply and I will keep the escalation moving."
+            "If not, tell me and I will proceed with the information already gathered."
         )
     if support_scope_status == "unsupported":
         return (
             "## Unsupported Site Escalation\n\n"
             "This site is outside Delta AI support scope.\n\n"
             f"{progress_text}"
-            "I can still help collect what is needed for the escalation ticket. Please share:\n"
+            "I can still help collect what is needed for the escalation ticket.\n\n"
+            "If you have any of these additional details, send them in one reply:\n"
             f"{field_list}\n\n"
-            "Send whatever remaining details you have in one reply and I will continue from there."
+            "If not, tell me and I will proceed with the information already gathered."
         )
     return (
         "## Ticket Information Needed\n\n"
         f"{progress_text}"
-        "I can create the support ticket for you. To get it submitted, please share:\n"
+        "I can create the support ticket for you.\n\n"
+        "If you have any of these additional details, send them in one reply:\n"
         f"{field_list}\n\n"
-        "Send whatever remaining details you have in one reply and I will continue from there."
+        "If not, tell me and I will proceed with the information already gathered."
     )
 
 
@@ -440,15 +443,43 @@ class WorkflowTests(unittest.TestCase):
                 "history": [message.model_dump(mode="json") for message in history],
             }
         )
-        self.assertEqual(state["current_phase"], "evidence_collection")
+        self.assertEqual(state["current_phase"], "ticket_creation")
         self.assertEqual(state["classification"]["intent"], IntentType.escalate.value)
-        self.assertTrue(state["escalation_active"])
+        self.assertFalse(state["escalation_active"])
         self.assertTrue(state["previous_escalation_active"])
-        self.assertNotIn("serial_number", state["missing_fields"])
-        self.assertEqual(state["next_action"], "collect_evidence")
-        self.assertIn("## Ticket Information Needed", state["response_text"])
-        self.assertIn("I can create the support ticket for you.", state["response_text"])
-        self.assertNotIn("## Evidence Required", state["response_text"])
+        self.assertEqual(state["ticket_response"]["status"], "mock_created")
+        self.assertEqual(self.ticket_adapter.last_payload.evidence_pack["serial_number"], "SN12345")
+
+    def test_escalation_follow_up_without_more_evidence_still_creates_ticket(self):
+        request = ChatMessageRequest(message="I do not have any more details")
+        history = [
+            ConversationMessage(
+                role=ConversationRole.user,
+                content="Please escalate this inverter issue",
+            ),
+            ConversationMessage(
+                role=ConversationRole.assistant,
+                content="I can create the support ticket for you. If you have any additional details, send them.",
+                intent=IntentType.escalate,
+                next_action=TroubleshootingAction.collect_evidence,
+                escalation_active=True,
+                evidence_snapshot=EvidencePack(
+                    user_role="customer_owner",
+                    ownership_verified=True,
+                    inverter_model="M100A",
+                    error_code="E031",
+                ),
+            ),
+        ]
+        state = self.workflow.invoke(
+            {
+                "request": request.model_dump(mode="json"),
+                "history": [message.model_dump(mode="json") for message in history],
+            }
+        )
+        self.assertEqual(state["current_phase"], "ticket_creation")
+        self.assertEqual(state["ticket_response"]["status"], "mock_created")
+        self.assertFalse(state["escalation_active"])
 
     def test_escalation_follow_up_uses_history_before_asking_again(self):
         request = ChatMessageRequest(message="Please create the ticket")
@@ -482,6 +513,58 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "ticket_creation")
         self.assertEqual(state["ticket_response"]["status"], "mock_created")
         self.assertFalse(state["escalation_active"])
+
+    def test_ticket_payload_includes_summarized_troubleshooting_history(self):
+        request = ChatMessageRequest(
+            message="Please create the ticket",
+            request_ticket=True,
+        )
+        history = [
+            ConversationMessage(
+                role=ConversationRole.user,
+                content="My inverter shows E031 after restart",
+            ),
+            ConversationMessage(
+                role=ConversationRole.assistant,
+                content=(
+                    "## First, check the E031 condition\n\n"
+                    "1. Check the display.\n"
+                    "2. Acknowledge the alarm.\n"
+                    "3. Run the restart sequence.\n\n"
+                    "Reply with the exact display message after this step."
+                ),
+                next_action=TroubleshootingAction.continue_troubleshooting,
+                escalation_active=False,
+                evidence_snapshot=EvidencePack(
+                    user_role="customer_owner",
+                    ownership_verified=True,
+                    inverter_model="M100A",
+                    serial_number="SN12345",
+                    firmware_version="1.0.4",
+                    error_code="E031",
+                    timestamp="2026-03-07T09:30:00Z",
+                    backup_loads_present=False,
+                    recent_changes="No recent changes",
+                ),
+            ),
+        ]
+        state = self.workflow.invoke(
+            {
+                "request": request.model_dump(mode="json"),
+                "history": [message.model_dump(mode="json") for message in history],
+            }
+        )
+
+        self.assertEqual(state["current_phase"], "ticket_creation")
+        self.assertIn(
+            "Check the display; Acknowledge the alarm; Run the restart sequence",
+            self.ticket_adapter.last_payload.escalation_summary,
+        )
+        self.assertNotIn("## First", self.ticket_adapter.last_payload.message_html)
+        self.assertIn(
+            "<li>Check the display; Acknowledge the alarm; Run the restart sequence</li>",
+            self.ticket_adapter.last_payload.message_html,
+        )
 
     def test_escalation_creates_ticket_when_evidence_ratio_reaches_threshold(self):
         request = ChatMessageRequest(message="Serial number SN12345")
