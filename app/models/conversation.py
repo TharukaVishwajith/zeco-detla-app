@@ -92,6 +92,14 @@ class TroubleshootingAction(str, Enum):
     resolved = "resolved"
 
 
+class ConversationState(str, Enum):
+    needs_clarification = "needs_clarification"
+    troubleshooting = "troubleshooting"
+    awaiting_evidence = "awaiting_evidence"
+    ticket_created = "ticket_created"
+    resolved = "resolved"
+
+
 class TroubleshootingResponse(BaseModel):
     response_text: str
     citations: list[str] = Field(default_factory=list)
@@ -105,6 +113,7 @@ class ConversationMessage(BaseModel):
     message_id: str | None = None
     request_id: str | None = None
     user_id: str | None = None
+    conversation_state: ConversationState | None = None
     system_message: str | None = None
     intent: IntentType | None = None
     citations: list[str] = Field(default_factory=list)
@@ -129,6 +138,7 @@ class ChatMessageRequest(BaseModel):
 
 class ChatMessageResponse(BaseModel):
     request_id: str | None = None
+    conversation_state: ConversationState
     current_phase: str
     intent: IntentType
     device_type: DeviceType

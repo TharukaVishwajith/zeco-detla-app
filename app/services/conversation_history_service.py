@@ -38,6 +38,7 @@ class ConversationHistoryService:
         system_message: str | None = None,
         escalation_active: bool | None = None,
         evidence_snapshot: dict | None = None,
+        conversation_state=None,
     ) -> None:
         if not request.request_id or not self.configured:
             return
@@ -53,6 +54,7 @@ class ConversationHistoryService:
                 role=ConversationRole.assistant,
                 content=response_text,
                 request_id=request.request_id,
+                conversation_state=conversation_state,
                 system_message=system_message,
                 intent=classification.intent,
                 citations=citations,

@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Request
 
+from app.core.conversation_state import derive_conversation_state
 from app.models.conversation import ChatMessageRequest, ChatMessageResponse, IntentClassification, TicketResponse
 
 
@@ -33,8 +34,10 @@ def chat_message(
     )
     classification = IntentClassification.model_validate(state["classification"])
     ticket = TicketResponse.model_validate(state["ticket_response"]) if state.get("ticket_response") else None
+    conversation_state = derive_conversation_state(state)
     response = ChatMessageResponse(
         request_id=request_id,
+        conversation_state=conversation_state,
         current_phase=state.get("current_phase", "unknown"),
         intent=classification.intent,
         device_type=classification.device_type,
@@ -59,5 +62,6 @@ def chat_message(
         system_message=response.system_message,
         escalation_active=state.get("escalation_active"),
         evidence_snapshot=state.get("merged_evidence_pack"),
+        conversation_state=response.conversation_state,
     )
     return response

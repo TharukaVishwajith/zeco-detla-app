@@ -114,6 +114,8 @@ class DynamoConversationRepository:
         }
         if message.user_id:
             item["user_id"] = message.user_id
+        if message.conversation_state:
+            item["conversation_state"] = message.conversation_state.value
         if message.system_message:
             item["system_message"] = message.system_message
         if message.intent:
@@ -140,6 +142,7 @@ class DynamoConversationRepository:
             "content": item.get("content", ""),
             "created_at": item.get("created_at"),
             "user_id": item.get("user_id"),
+            "conversation_state": item.get("conversation_state"),
             "system_message": item.get("system_message"),
             "intent": item.get("intent"),
             "citations": item.get("citations", []),

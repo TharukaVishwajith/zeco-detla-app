@@ -3,6 +3,7 @@ import unittest
 from app.adapters.dynamodb_conversation_repository import DynamoConversationRepository
 from app.models.conversation import (
     ChatMessageRequest,
+    ConversationState,
     ConversationMessage,
     ConversationRole,
     DeviceType,
@@ -51,6 +52,7 @@ class FakeWorkflow:
                     "missing_info": ["issue_or_question_details"],
                     "system_message": "Please share your Delta issue or model number.",
                 },
+                "conversation_state": ConversationState.needs_clarification.value,
                 "current_phase": "intake",
                 "response_text": "Please share your Delta issue or model number.",
                 "system_message": "Please share your Delta issue or model number.",
@@ -69,6 +71,7 @@ class FakeWorkflow:
                 "missing_info": [],
                 "system_message": None,
             },
+            "conversation_state": ConversationState.troubleshooting.value,
             "current_phase": "troubleshooting",
             "response_text": f"history={len(history)} prior={prior_assistant}",
             "citations": ["doc-1"],
@@ -95,6 +98,8 @@ class ConversationHistoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([message.role for message in stored_messages], [ConversationRole.user, ConversationRole.assistant])
         self.assertEqual(stored_messages[0].content, "My inverter shows E031")
         self.assertEqual(stored_messages[1].content, response.response_text)
+        self.assertEqual(response.conversation_state, ConversationState.troubleshooting)
+        self.assertEqual(stored_messages[1].conversation_state, ConversationState.troubleshooting)
 
     async def test_follow_up_message_loads_prior_history(self):
         first_response = await chat_message(
@@ -127,6 +132,8 @@ class ConversationHistoryRouteTests(unittest.IsolatedAsyncioTestCase):
         assistant_message = stored_messages[1]
         self.assertEqual(assistant_message.content, response.response_text)
         self.assertEqual(assistant_message.system_message, response.system_message)
+        self.assertEqual(response.conversation_state, ConversationState.needs_clarification)
+        self.assertEqual(assistant_message.conversation_state, ConversationState.needs_clarification)
 
     async def test_escalation_state_is_persisted_with_history(self):
         class EscalationWorkflow(FakeWorkflow):
@@ -144,6 +151,7 @@ class ConversationHistoryRouteTests(unittest.IsolatedAsyncioTestCase):
                         "missing_scope_fields": [],
                         "system_message": None,
                     },
+                    "conversation_state": ConversationState.awaiting_evidence.value,
                     "current_phase": "evidence_collection",
                     "response_text": "Please provide the serial number.",
                     "citations": [],
@@ -159,6 +167,8 @@ class ConversationHistoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         stored_messages = self.repository.load_messages(response.request_id)
         self.assertTrue(stored_messages[1].escalation_active)
+        self.assertEqual(response.conversation_state, ConversationState.awaiting_evidence)
+        self.assertEqual(stored_messages[1].conversation_state, ConversationState.awaiting_evidence)
 
 
 class DynamoConversationRepositoryTests(unittest.TestCase):
@@ -197,12 +207,14 @@ class DynamoConversationRepositoryTests(unittest.TestCase):
             message=ConversationMessage(
                 role=ConversationRole.assistant,
                 content="Please provide the serial number.",
+                conversation_state=ConversationState.awaiting_evidence,
                 escalation_active=True,
             ),
         )
 
         restored = repository._deserialize_message(item)  # noqa: SLF001 - validating item fields directly
         self.assertTrue(restored.escalation_active)
+        self.assertEqual(restored.conversation_state, ConversationState.awaiting_evidence)
 
 
 if __name__ == "__main__":

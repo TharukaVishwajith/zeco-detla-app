@@ -15,6 +15,7 @@ class SupportGraphState(TypedDict, total=False):
     missing_fields: list[str]
     missing_artifacts: list[str]
     ticket_response: dict[str, Any]
+    conversation_state: str
     current_phase: str
     response_text: str
     system_message: str

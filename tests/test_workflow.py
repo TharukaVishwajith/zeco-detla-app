@@ -1,9 +1,11 @@
 import unittest
 
 from app.core.conversation_context import extract_message_evidence, merge_evidence_from_conversation
+from app.core.conversation_state import derive_conversation_state
 from app.graph.workflow import WorkflowDependencies, build_workflow
 from app.models.conversation import (
     ChatMessageRequest,
+    ConversationState,
     ConversationMessage,
     ConversationRole,
     DeviceInfo,
@@ -514,6 +516,65 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "ticket_creation")
         self.assertGreaterEqual(state["evidence_completion_ratio"], 0.7)
         self.assertEqual(state["ticket_response"]["status"], "mock_created")
+
+
+class ConversationStateMappingTests(unittest.TestCase):
+    def test_maps_intake_message_to_needs_clarification(self):
+        self.assertEqual(
+            derive_conversation_state(
+                {
+                    "current_phase": "intake",
+                    "system_message": "Please share your Delta issue or model number.",
+                    "next_action": TroubleshootingAction.ask_question.value,
+                }
+            ),
+            ConversationState.needs_clarification,
+        )
+
+    def test_maps_standard_troubleshooting_to_troubleshooting(self):
+        self.assertEqual(
+            derive_conversation_state(
+                {
+                    "current_phase": "troubleshooting",
+                    "next_action": TroubleshootingAction.continue_troubleshooting.value,
+                }
+            ),
+            ConversationState.troubleshooting,
+        )
+
+    def test_maps_evidence_collection_to_awaiting_evidence(self):
+        self.assertEqual(
+            derive_conversation_state(
+                {
+                    "current_phase": "evidence_collection",
+                    "next_action": TroubleshootingAction.collect_evidence.value,
+                }
+            ),
+            ConversationState.awaiting_evidence,
+        )
+
+    def test_maps_ticket_response_to_ticket_created(self):
+        self.assertEqual(
+            derive_conversation_state(
+                {
+                    "current_phase": "ticket_creation",
+                    "next_action": TroubleshootingAction.escalate.value,
+                    "ticket_response": {"ticket_id": "MOCK-123"},
+                }
+            ),
+            ConversationState.ticket_created,
+        )
+
+    def test_maps_resolved_action_to_resolved(self):
+        self.assertEqual(
+            derive_conversation_state(
+                {
+                    "current_phase": "troubleshooting",
+                    "next_action": TroubleshootingAction.resolved.value,
+                }
+            ),
+            ConversationState.resolved,
+        )
 
 
 if __name__ == "__main__":

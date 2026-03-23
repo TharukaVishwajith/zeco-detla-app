@@ -811,7 +811,12 @@
     function renderAssistantResponse(body) {
       requestId = body.request_id || requestId;
 
-      const meta = `intent: ${body.intent} | device: ${body.device_type} | next_action: ${body.next_action}`;
+      const metaParts = [];
+      if (body.conversation_state) metaParts.push(`state: ${body.conversation_state}`);
+      if (body.intent) metaParts.push(`intent: ${body.intent}`);
+      if (body.device_type) metaParts.push(`device: ${body.device_type}`);
+      if (body.next_action) metaParts.push(`next_action: ${body.next_action}`);
+      const meta = metaParts.join(" | ");
       createMessage("assistant", body.response_text || "(empty response)", meta, { markdown: true });
 
       if (body.missing_fields && body.missing_fields.length) {
