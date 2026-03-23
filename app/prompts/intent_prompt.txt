@@ -42,6 +42,9 @@ Return JSON with this schema:
 
 Rules:
 - Decide intent at the conversation level, not just from the current line.
+- Any generated free-text fields must be in English only, even if the user writes in another language.
+- This English-only rule applies to `user_query`, `evidence_collection_response_text`, `additional_info`, and `system_message`.
+- Keep exact error codes, model numbers, serial numbers, firmware versions, timestamps, and short quoted device/display text unchanged when needed for accuracy.
 - If earlier turns were `troubleshoot` or `general_question` and the latest turn requests escalation/ticket/technician, set intent to `escalate`.
 - Also set intent to `escalate` when the user asks for escalation indirectly and that intent is clear only when the latest message is combined with the message history.
 - Treat indirect escalation as present when the user is clearly asking for handoff, higher-level help, onsite help, a callback, a technician, a supervisor, a case/ticket, or for someone else to take over, even if they do not use the exact word "escalate".

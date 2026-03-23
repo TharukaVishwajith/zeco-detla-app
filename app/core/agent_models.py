@@ -9,8 +9,8 @@ INTENT_AGENT_NAME = "intent_classifier"
 TROUBLESHOOTING_AGENT_NAME = "troubleshooting"
 
 DEFAULT_AGENT_MODEL_BY_NAME = {
-    INTENT_AGENT_NAME: "gpt-5.2",
-    TROUBLESHOOTING_AGENT_NAME: "gpt-5.2",
+    INTENT_AGENT_NAME: "gpt-5.4-mini",
+    TROUBLESHOOTING_AGENT_NAME: "gpt-5.4-mini",
 }
 
 
