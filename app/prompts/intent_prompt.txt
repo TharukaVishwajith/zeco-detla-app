@@ -88,6 +88,10 @@ Rules:
 - When `missing_info` contains `"issue_or_question_details"`, generate a short friendly `system_message` that matches
   the user's wording and asks for a Delta domain-specific technical question (issue, alarm/error text, model number).
 - Any user-facing `system_message` must be valid Markdown.
+- Keep `system_message` simple and easy to scan.
+- Prefer a short opening plus 2 to 3 bullets.
+- Ask only for the minimum useful details needed to continue.
+- Avoid stiff phrasing such as "share the technical details for" unless it is necessary for clarity.
 - For `troubleshoot` or `escalate`, set `system_message` to `null`.
 - Extract `error_code` only if present in the message.
 - Do not invent device information.

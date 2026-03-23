@@ -34,8 +34,12 @@ def build_troubleshooting_node(llm_client, validation_service):
             is_valid, errors = validation_service.validate_troubleshooting_response(response=response, retrieved_docs=documents)
         if not is_valid:
             fallback_text = (
-                "I could not produce a fully grounded answer from the retrieved Delta knowledge-base content. "
-                "Please provide the exact model number and fault text, or request escalation."
+                "## I need one more detail\n\n"
+                "I could not give a safe grounded answer from the Delta support content yet.\n\n"
+                "Please reply with:\n"
+                "1. The exact model number\n"
+                "2. The exact fault text shown on screen\n\n"
+                "If you already have both, you can also ask me to escalate it."
             )
             response = TroubleshootingResponse(
                 response_text=fallback_text,

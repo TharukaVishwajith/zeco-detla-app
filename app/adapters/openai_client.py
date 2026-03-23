@@ -196,10 +196,14 @@ class OpenAIClient:
         classification: IntentClassification,
     ) -> TroubleshootingResponse:
         if not retrieved_docs:
-            missing = ["model number", "exact error code", "recent changes"]
             response_text = (
-                "I could not find a matching Delta knowledge-base article from the details provided. "
-                f"Please share the {', '.join(missing)} so I can continue, or request escalation."
+                "## Let’s narrow this down\n\n"
+                "I do not have enough detail yet to match the issue to a Delta support article.\n\n"
+                "Please send:\n"
+                "1. The model number\n"
+                "2. The exact error code or fault text\n"
+                "3. Any recent change before this started\n\n"
+                "Reply with those details and I’ll give you the next step."
             )
             return TroubleshootingResponse(
                 response_text=response_text,
@@ -210,14 +214,19 @@ class OpenAIClient:
         primary_doc = retrieved_docs[0]
         excerpt = primary_doc.content.strip().replace("\n", " ")
         excerpt = excerpt[:320].rstrip()
+        opening = "## First, try this"
+        if classification.error_code:
+            opening = f"## First, check the {classification.error_code} condition"
+
         response_text = (
-            f"Based on Delta KB document {primary_doc.doc_id}"
-            + (f" ({primary_doc.section_title})" if primary_doc.section_title else "")
-            + f", start with this documented guidance: {excerpt}."
+            f"{opening}\n\n"
+            "Follow this Delta-documented step:\n\n"
+            "1. "
+            f"{excerpt}.\n\n"
         )
         if classification.error_code:
-            response_text += f" This appears related to error code {classification.error_code}."
-        response_text += " If the issue persists after that step, reply with the observed LED state or exact fault text."
+            response_text += f"This matches the reported code: `{classification.error_code}`.\n\n"
+        response_text += "Reply with the exact display message or LED state after this step."
         return TroubleshootingResponse(
             response_text=response_text,
             citations=[doc.doc_id for doc in retrieved_docs[:3]],
@@ -417,18 +426,18 @@ class OpenAIClient:
             snippet = f"{snippet[:77].rstrip()}..."
         if snippet:
             return (
-                "## Delta Support\n\n"
-                f"Thanks for your message about \"{snippet}\".\n\n"
-                "Please share one of the following so I can help:\n"
-                "- The issue you are seeing\n"
-                "- The alarm or error text\n"
+                "## Tell me a bit more\n\n"
+                f"You mentioned: \"{snippet}\"\n\n"
+                "Please send one of these so I can help:\n"
+                "- What issue you are seeing\n"
+                "- The exact alarm or error text\n"
                 "- The model number"
             )
         return (
-            "## Delta Support\n\n"
-            "Please share one of the following so I can help:\n"
-            "- The issue you are seeing\n"
-            "- The alarm or error text\n"
+            "## Tell me a bit more\n\n"
+            "Please send one of these so I can help:\n"
+            "- What issue you are seeing\n"
+            "- The exact alarm or error text\n"
             "- The model number"
         )
 
