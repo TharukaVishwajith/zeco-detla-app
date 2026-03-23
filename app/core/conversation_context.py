@@ -4,14 +4,6 @@ from app.models.conversation import ConversationMessage, ConversationRole, Troub
 from app.models.evidence import EvidencePack
 
 
-USER_ROLE_PATTERNS = {
-    "licensed installer": "licensed_installer",
-    "installer": "licensed_installer",
-    "electrician": "licensed_installer",
-    "customer": "customer_owner",
-    "owner": "customer_owner",
-    "homeowner": "customer_owner",
-}
 TRUE_PATTERNS = ("yes", "present", "available", "provided", "true")
 FALSE_PATTERNS = ("no", "not available", "unavailable", "false")
 
@@ -61,23 +53,48 @@ def merge_evidence_from_conversation(
 
 
 def extract_message_evidence(text: str) -> EvidencePack:
-    inverter_match = re.search(r"\binverter model[:\s]+([A-Za-z0-9_-]+)\b", text, re.IGNORECASE)
-    battery_match = re.search(r"\bbattery model[:\s]+([A-Za-z0-9_-]+)\b", text, re.IGNORECASE)
-    serial_match = re.search(r"\bserial(?: number)?[:\s]+([A-Za-z0-9_-]+)\b", text, re.IGNORECASE)
-    firmware_match = re.search(r"\bfirmware(?: version)?[:\s]+([A-Za-z0-9._-]+)\b", text, re.IGNORECASE)
-    battery_firmware_match = re.search(r"\bbattery firmware(?: version)?[:\s]+([A-Za-z0-9._-]+)\b", text, re.IGNORECASE)
+    inverter_match = re.search(
+        r"\b(?:inverter model|model number|model)\s*(?:is|=|:)?\s*([A-Za-z0-9_-]+)\b",
+        text,
+        re.IGNORECASE,
+    )
+    battery_match = re.search(r"\bbattery model\s*(?:is|=|:)?\s*([A-Za-z0-9_-]+)\b", text, re.IGNORECASE)
+    serial_match = re.search(r"\bserial(?: number)?\s*(?:is|=|:)?\s*([A-Za-z0-9_-]+)\b", text, re.IGNORECASE)
+    firmware_match = re.search(r"\bfirmware(?: version)?\s*(?:is|=|:)?\s*([A-Za-z0-9._-]+)\b", text, re.IGNORECASE)
+    battery_firmware_match = re.search(
+        r"\bbattery firmware(?: version)?\s*(?:is|=|:)?\s*([A-Za-z0-9._-]+)\b",
+        text,
+        re.IGNORECASE,
+    )
     error_match = re.search(r"\b([A-Z]{1,4}[- ]?\d{2,5})\b", text)
     timestamp_match = re.search(r"\b(\d{4}-\d{2}-\d{2}[T ][0-9:]{5,8}Z?)\b", text)
-    app_match = re.search(r"\b(?:app|portal) version[:\s]+([A-Za-z0-9._-]+)\b", text, re.IGNORECASE)
+    app_match = re.search(r"\b(?:app|portal) version\s*(?:is|=|:)?\s*([A-Za-z0-9._-]+)\b", text, re.IGNORECASE)
     ownership_verified = None
     lowered = text.lower()
     if "not sure who owns" in lowered or "unknown owner" in lowered:
         ownership_verified = False
-    elif any(term in lowered for term in ("my system", "my site", "our site", "our system")):
+    elif any(
+        term in lowered
+        for term in (
+            "my system",
+            "my site",
+            "our site",
+            "our system",
+            "i am the owner",
+            "i'm the owner",
+            "owner here",
+            "i am responsible for this site",
+            "i'm responsible for this site",
+        )
+    ):
         ownership_verified = True
     backup_loads_present = None
     if "backup loads" in lowered:
         backup_loads_present = _parse_bool(text, TRUE_PATTERNS, FALSE_PATTERNS)
+    elif "no backup" in lowered:
+        backup_loads_present = False
+    elif "with backup" in lowered or "has backup" in lowered:
+        backup_loads_present = True
 
     screenshot_available = None
     screenshot_provided = None
@@ -93,12 +110,13 @@ def extract_message_evidence(text: str) -> EvidencePack:
         battery_firmware_version=battery_firmware_match.group(1) if battery_firmware_match else None,
         error_code=error_match.group(1).replace(" ", "-") if error_match else None,
         timestamp=timestamp_match.group(1) if timestamp_match else None,
-        user_role=_match_mapping(text, USER_ROLE_PATTERNS),
+        user_role=_extract_user_role(text),
         ownership_verified=ownership_verified,
         backup_loads_present=backup_loads_present,
         app_or_portal_version=app_match.group(1) if app_match else None,
         screenshot_available=screenshot_available,
         screenshot_provided=screenshot_provided,
+        recent_changes=_extract_recent_changes(text),
     )
 
 
@@ -111,9 +129,62 @@ def _parse_bool(text: str, positive_terms: tuple[str, ...], negative_terms: tupl
     return None
 
 
-def _match_mapping(text: str, mapping: dict[str, str]) -> str | None:
+def _extract_recent_changes(text: str) -> str | None:
     lowered = text.lower()
-    for term, normalized in mapping.items():
-        if term in lowered:
-            return normalized
+    phrases = (
+        "after",
+        "since",
+        "before this started",
+        "started when",
+        "happened after",
+        "changed after",
+        "grid outage",
+        "power outage",
+        "storm",
+        "update",
+        "installation",
+        "maintenance",
+    )
+    if not any(phrase in lowered for phrase in phrases):
+        return None
+    normalized = " ".join(text.split()).strip()
+    return normalized or None
+
+
+def _extract_user_role(text: str) -> str | None:
+    lowered = text.lower()
+    installer_terms = (
+        "installer",
+        "technician",
+        "electrician",
+        "contractor",
+        "engineer",
+    )
+    customer_terms = (
+        "customer",
+        "owner",
+        "homeowner",
+        "end user",
+        "end-user",
+        "user",
+    )
+
+    role_patterns = (
+        r"\b(?:user role|my role|role)\s*(?:is|=|:)\s*([A-Za-z][A-Za-z /-]{1,40})",
+        r"\b(?:i am|i'm|im)\s+(?:the\s+|a\s+|an\s+)?([A-Za-z][A-Za-z /-]{1,40})",
+    )
+    for pattern in role_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if not match:
+            continue
+        role_text = re.split(r"[,.;\n]", match.group(1), maxsplit=1)[0].strip().lower()
+        if any(term in role_text for term in installer_terms):
+            return "Installer"
+        if any(term in role_text for term in customer_terms):
+            return "customer"
+
+    if any(re.search(rf"\b{re.escape(term)}\b", lowered) for term in installer_terms):
+        return "Installer"
+    if any(re.search(rf"\b{re.escape(term)}\b", lowered) for term in customer_terms):
+        return "customer"
     return None

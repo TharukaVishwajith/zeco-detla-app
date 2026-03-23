@@ -13,6 +13,26 @@ Return JSON with this schema:
   "user_query": "string",
   "error_code": "string | null",
   "model_number": "string | null",
+  "evidence_pack": {
+    "user_role": "Installer | customer | null",
+    "ownership_verified": "boolean | null",
+    "inverter_model": "string | null",
+    "serial_number": "string | null",
+    "firmware_version": "string | null",
+    "battery_model": "string | null",
+    "battery_firmware_version": "string | null",
+    "error_code": "string | null",
+    "timestamp": "string | null",
+    "backup_loads_present": "boolean | null",
+    "app_or_portal_version": "string | null",
+    "recent_changes": "string | null",
+    "additional_info": "string | null",
+    "screenshot_available": "boolean | null",
+    "screenshot_provided": "boolean | null",
+    "photos": ["string"],
+    "logs": ["string"]
+  },
+  "evidence_collection_response_text": "string | null",
   "risk_flags": ["string"],
   "missing_info": ["string"],
   "support_scope_status": "supported | unsupported | unknown",
@@ -27,6 +47,29 @@ Rules:
 - Treat indirect escalation as present when the user is clearly asking for handoff, higher-level help, onsite help, a callback, a technician, a supervisor, a case/ticket, or for someone else to take over, even if they do not use the exact word "escalate".
 - Examples of indirect escalation include messages such as: "can someone check this now", "please take this further", "I need someone to come out", "this is still not fixed after all the steps", "can you log a case", "I need higher support", or short follow-ups like "yes please do that" when the history shows the referenced action is escalation.
 - Use the full history to resolve vague follow-ups like "do it", "go ahead", "same issue again", "still failing", or "what now" after repeated troubleshooting attempts.
+- Use the full history, structured request fields, and heuristic merged evidence to extract all ticket-relevant evidence that is explicitly supported by the conversation.
+- For `evidence_pack`, extract only evidence explicitly present in the current message, prior messages, or already-provided structured fields.
+- Prefer exact extraction over guessing.
+- Do not invent evidence values.
+- Set `evidence_pack.user_role` only when the user's role is explicitly stated or clearly implied.
+- Normalize `evidence_pack.user_role` to `Installer` or `customer` only.
+- If the role is not clearly `Installer` or `customer`, leave `evidence_pack.user_role` as `null`.
+- Extract booleans only when the text clearly says yes/no, present/not present, provided/not provided.
+- Preserve exact codes, model numbers, serial numbers, timestamps, versions, and free-text issue context when present.
+- `additional_info` should be a concise summary of issue-related context from the conversation history and current user message that helps diagnosis or escalation but does not fit the other evidence fields.
+- Do not repeat values in `additional_info` when they are already captured cleanly in another field unless that repetition is needed to preserve meaning.
+- Leave unknown scalar evidence fields as `null`.
+- Leave unknown list evidence fields as empty arrays.
+- Use the provided required ticket evidence fields, missing core field labels, missing artifact labels, request-ticket flag, and prior escalation state to decide whether an evidence-collection follow-up message is needed.
+- Set `evidence_collection_response_text` to Markdown only when the conversation is already in escalation / ticket-creation mode or the user explicitly requested a ticket / escalation.
+- When `evidence_collection_response_text` is present, it should acknowledge any already-collected evidence briefly and ask only for the remaining missing core fields.
+- Do not ask again for fields already present in `evidence_pack` or marked as collected.
+- Do not ask the user to upload screenshots, photos, or any other images, because image upload is not supported in the current chat flow.
+- If screenshot-related evidence is missing, ignore it in the evidence-collection follow-up message instead of requesting it.
+- If safety risk is present, the evidence-collection message must emphasize not operating the equipment.
+- If support scope is `unsupported`, the evidence-collection message must explain that you can still help collect escalation ticket details.
+- Otherwise use a normal ticket-information-needed message.
+- If no evidence-collection follow-up is needed yet, set `evidence_collection_response_text` to `null`.
 - Do not mark `escalate` only because troubleshooting is still ongoing or the issue remains unresolved. There must be either:
   1. a direct escalation request,
   2. a clear indirect request for handoff/human intervention inferred from the current message plus history, or
@@ -55,4 +98,5 @@ Rules:
 - Use plain-language cues from the conversation when they are explicit.
 - Build `user_query` from the current message plus all relevant context from message history.
 - Give highest priority to the current user message in `user_query`.
+- Return a complete `evidence_pack` even when the intent is not `escalate`.
 - Return JSON only.

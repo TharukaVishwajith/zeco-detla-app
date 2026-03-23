@@ -8,7 +8,6 @@ from openai import OpenAI
 
 from app.core.conversation_context import latest_escalation_state, merge_evidence_from_conversation
 from app.core.agent_models import (
-    EVIDENCE_EXTRACTION_AGENT_NAME,
     INTENT_AGENT_NAME,
     TROUBLESHOOTING_AGENT_NAME,
     AgentModelConfig,
@@ -26,7 +25,7 @@ from app.models.conversation import (
     TroubleshootingResponse,
     UnsupportedReason,
 )
-from app.models.evidence import EvidencePack
+from app.models.evidence import EvidencePack, format_markdown_field_list, humanize_evidence_field
 
 
 logger = logging.getLogger(__name__)
@@ -91,14 +90,31 @@ class OpenAIClient:
         history = history or []
         message = request.message
         normalized_message = re.sub(r"\s+", " ", message).strip()
+        active_escalation = latest_escalation_state(history) and not request.issue_resolved
+        heuristic_evidence = merge_evidence_from_conversation(
+            current_message=request.message,
+            request_evidence=request.evidence_pack,
+            history=history,
+        )
+        heuristic_missing_fields = heuristic_evidence.missing_core_fields()
+        heuristic_missing_artifacts = heuristic_evidence.missing_best_effort_artifacts()
+        heuristic_missing_field_labels = [humanize_evidence_field(field) for field in heuristic_missing_fields]
+        heuristic_missing_artifact_labels = [humanize_evidence_field(field) for field in heuristic_missing_artifacts]
+        required_ticket_field_labels = [humanize_evidence_field(field) for field in heuristic_evidence.required_core_fields()]
         prompt = self._load_prompt("intent_prompt.txt")
         history_block = self._format_history(history)
         user_prompt = (
             f"Conversation history (oldest first):\n{history_block}\n\n"
             f"Current user message (highest priority):\n{normalized_message}\n\n"
+            f"Request ticket:\n{json.dumps(request.request_ticket)}\n\n"
+            f"Prior escalation active:\n{json.dumps(active_escalation)}\n\n"
             f"Known device info:\n{request.device_info.model_dump_json()}\n\n"
             f"Customer info:\n{request.customer_info.model_dump_json()}\n\n"
-            f"Evidence pack:\n{request.evidence_pack.model_dump_json()}\n\n"
+            f"Structured evidence already provided:\n{request.evidence_pack.model_dump_json()}\n\n"
+            f"Heuristic merged evidence so far:\n{heuristic_evidence.model_dump_json()}\n\n"
+            f"Required ticket evidence fields:\n{json.dumps(required_ticket_field_labels)}\n\n"
+            f"Heuristic missing core field labels:\n{json.dumps(heuristic_missing_field_labels)}\n\n"
+            f"Heuristic missing artifact labels:\n{json.dumps(heuristic_missing_artifact_labels)}\n\n"
             "Return JSON only."
         )
 
@@ -111,15 +127,29 @@ class OpenAIClient:
             if payload is None:
                 raise RuntimeError("LangChain agent unavailable for intent classification")
             classification = IntentClassification.model_validate(payload)
+            classification.evidence_pack = heuristic_evidence.merge(classification.evidence_pack)
             classification.user_query = self._prioritize_current_message(
                 current_message=normalized_message,
                 user_query=classification.user_query,
+                history=history,
+            )
+            classification.evidence_collection_response_text = self._normalize_evidence_collection_response_text(
+                classification=classification,
+                heuristic_evidence=heuristic_evidence,
+                request=request,
                 history=history,
             )
             return classification
         except Exception as exc:  # pragma: no cover - network/API failure path
             logger.warning("OpenAI classification failed, using heuristic fallback: %s", exc)
             fallback = self._heuristic_classification(request=request, history=history)
+            fallback.evidence_pack = heuristic_evidence
+            fallback.evidence_collection_response_text = self._fallback_evidence_collection_response(
+                merged_evidence=heuristic_evidence,
+                missing_fields=heuristic_missing_fields,
+                support_scope_status=fallback.support_scope_status.value,
+                safety_assessment={"escalate_immediately": bool(fallback.risk_flags)},
+            ) if (request.request_ticket or active_escalation or fallback.intent == IntentType.escalate or fallback.risk_flags) else None
             if not self.client:
                 return fallback
             return fallback
@@ -159,46 +189,6 @@ class OpenAIClient:
             logger.warning("OpenAI troubleshooting generation failed, using fallback: %s", exc)
             return fallback
 
-    def extract_evidence(
-        self,
-        request: ChatMessageRequest,
-        history: list[ConversationMessage] | None = None,
-    ) -> EvidencePack:
-        history = history or []
-        heuristic = merge_evidence_from_conversation(
-            current_message=request.message,
-            request_evidence=request.evidence_pack,
-            history=history,
-        )
-        if not self.client:
-            return heuristic
-
-        prompt = self._load_prompt("evidence_prompt.txt")
-        history_block = self._format_history(history)
-        user_prompt = (
-            f"Conversation history (oldest first):\n{history_block}\n\n"
-            f"Current user message:\n{request.message}\n\n"
-            f"Known device info:\n{request.device_info.model_dump_json()}\n\n"
-            f"Customer info:\n{request.customer_info.model_dump_json()}\n\n"
-            f"Structured evidence already provided:\n{request.evidence_pack.model_dump_json()}\n\n"
-            f"Heuristic merged evidence so far:\n{heuristic.model_dump_json()}\n\n"
-            "Return JSON only."
-        )
-
-        try:
-            payload = self._invoke_agent_json(
-                agent_name=EVIDENCE_EXTRACTION_AGENT_NAME,
-                system_prompt=prompt,
-                user_prompt=user_prompt,
-            )
-            if payload is None:
-                raise RuntimeError("LangChain agent unavailable for evidence extraction")
-            extracted = EvidencePack.model_validate(payload)
-            return heuristic.merge(extracted)
-        except Exception as exc:  # pragma: no cover - network/API failure path
-            logger.warning("OpenAI evidence extraction failed, using heuristic fallback: %s", exc)
-            return heuristic
-
     def _grounded_fallback_response(
         self,
         message: str,
@@ -232,6 +222,70 @@ class OpenAIClient:
             response_text=response_text,
             citations=[doc.doc_id for doc in retrieved_docs[:3]],
             next_action=TroubleshootingAction.continue_troubleshooting,
+        )
+
+    def _fallback_evidence_collection_response(
+        self,
+        *,
+        merged_evidence: EvidencePack,
+        missing_fields: list[str],
+        support_scope_status: str | None,
+        safety_assessment: dict,
+    ) -> str:
+        field_list = format_markdown_field_list(missing_fields)
+        provided_labels = sorted(humanize_evidence_field(name) for name in merged_evidence.provided_fields())
+        progress_text = ""
+        if provided_labels:
+            preview = ", ".join(provided_labels[:4])
+            if len(provided_labels) > 4:
+                preview += ", ..."
+            progress_text = f"I already have: {preview}.\n\n"
+
+        if safety_assessment.get("escalate_immediately"):
+            return (
+                "## Immediate Safety Escalation\n\n"
+                "A safety hazard was detected. Do not continue operating the equipment.\n\n"
+                f"{progress_text}"
+                "I can help create the support ticket, but I still need:\n"
+                f"{field_list}\n\n"
+                "Send whatever remaining details you have in one reply and I will keep the escalation moving."
+            )
+        if support_scope_status == "unsupported":
+            return (
+                "## Unsupported Site Escalation\n\n"
+                "This site is outside Delta AI support scope.\n\n"
+                f"{progress_text}"
+                "I can still help collect what is needed for the escalation ticket. Please share:\n"
+                f"{field_list}\n\n"
+                "Send whatever remaining details you have in one reply and I will continue from there."
+            )
+        return (
+            "## Ticket Information Needed\n\n"
+            f"{progress_text}"
+            "I can create the support ticket for you. To get it submitted, please share:\n"
+            f"{field_list}\n\n"
+            "Send whatever remaining details you have in one reply and I will continue from there."
+        )
+
+    def _normalize_evidence_collection_response_text(
+        self,
+        *,
+        classification: IntentClassification,
+        heuristic_evidence: EvidencePack,
+        request: ChatMessageRequest,
+        history: list[ConversationMessage],
+    ) -> str | None:
+        active_escalation = latest_escalation_state(history) and not request.issue_resolved
+        if not (request.request_ticket or active_escalation or classification.intent == IntentType.escalate or classification.risk_flags):
+            return None
+        response_text = (classification.evidence_collection_response_text or "").strip()
+        if response_text:
+            return response_text
+        return self._fallback_evidence_collection_response(
+            merged_evidence=classification.evidence_pack or heuristic_evidence,
+            missing_fields=(classification.evidence_pack or heuristic_evidence).missing_core_fields(),
+            support_scope_status=classification.support_scope_status.value,
+            safety_assessment={"escalate_immediately": bool(classification.risk_flags)},
         )
 
     def _heuristic_classification(
@@ -273,7 +327,7 @@ class OpenAIClient:
         )
 
         intent = IntentType.troubleshoot
-        if active_escalation or any(term in lowered for term in ("ticket", "escalate", "support case", "technician")):
+        if risk_flags or active_escalation or any(term in lowered for term in ("ticket", "escalate", "support case", "technician")):
             intent = IntentType.escalate
         elif any(term in lowered for term in ("how do", "what is", "where can", "manual")) or "?" in message:
             intent = IntentType.general_question
@@ -299,6 +353,7 @@ class OpenAIClient:
             user_query=user_query,
             error_code=error_match.group(1).replace(" ", "-") if error_match else None,
             model_number=model_number,
+            evidence_pack=request.evidence_pack,
             risk_flags=risk_flags,
             missing_info=missing_info,
             support_scope_status=support_scope_status,

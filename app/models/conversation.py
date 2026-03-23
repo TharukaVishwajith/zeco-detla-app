@@ -53,6 +53,8 @@ class IntentClassification(BaseModel):
     user_query: str | None = None
     error_code: str | None = None
     model_number: str | None = None
+    evidence_pack: EvidencePack = Field(default_factory=EvidencePack)
+    evidence_collection_response_text: str | None = None
     risk_flags: list[str] = Field(default_factory=list)
     missing_info: list[str] = Field(default_factory=list)
     support_scope_status: SupportScopeStatus = SupportScopeStatus.unknown

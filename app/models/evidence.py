@@ -118,9 +118,11 @@ class EvidencePack(BaseModel):
 
     def missing_best_effort_artifacts(self) -> list[str]:
         provided = self.provided_fields()
-        missing = [field_name for field_name in BEST_EFFORT_ARTIFACT_FIELDS if field_name not in provided]
-        if self.screenshot_available is False:
-            missing = [field_name for field_name in missing if field_name != "screenshot_provided"]
+        missing = [
+            field_name
+            for field_name in BEST_EFFORT_ARTIFACT_FIELDS
+            if field_name not in provided and field_name != "screenshot_provided"
+        ]
         if self.photo_checklist_completed:
             completed = set(self.photo_checklist_completed)
             for required_item in PHOTO_CHECKLIST_FIELDS - completed:

@@ -7,12 +7,10 @@ logger = logging.getLogger(__name__)
 
 INTENT_AGENT_NAME = "intent_classifier"
 TROUBLESHOOTING_AGENT_NAME = "troubleshooting"
-EVIDENCE_EXTRACTION_AGENT_NAME = "evidence_extraction"
 
 DEFAULT_AGENT_MODEL_BY_NAME = {
     INTENT_AGENT_NAME: "gpt-5.2",
     TROUBLESHOOTING_AGENT_NAME: "gpt-5.2",
-    EVIDENCE_EXTRACTION_AGENT_NAME: "gpt-5.2",
 }
 
 

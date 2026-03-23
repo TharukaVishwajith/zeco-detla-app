@@ -1,6 +1,6 @@
 import unittest
 
-from app.core.conversation_context import merge_evidence_from_conversation
+from app.core.conversation_context import extract_message_evidence, merge_evidence_from_conversation
 from app.graph.workflow import WorkflowDependencies, build_workflow
 from app.models.conversation import (
     ChatMessageRequest,
@@ -23,19 +23,62 @@ from app.services.ticket_service import TicketService
 from app.services.validation_service import ValidationService
 
 
+def build_fake_evidence_collection_response(
+    merged_evidence: EvidencePack,
+    missing_fields: list[str],
+    support_scope_status,
+    safety_assessment,
+) -> str:
+    field_list = "\n".join(f"- {field.replace('_', ' ')}" for field in missing_fields)
+    provided = sorted(merged_evidence.provided_fields().keys())
+    progress_text = f"I already have: {', '.join(provided[:4])}.\n\n" if provided else ""
+    if safety_assessment.get("escalate_immediately"):
+        return (
+            "## Immediate Safety Escalation\n\n"
+            "A safety hazard was detected. Do not continue operating the equipment.\n\n"
+            f"{progress_text}"
+            "I can help create the support ticket, but I still need:\n"
+            f"{field_list}\n\n"
+            "Send whatever remaining details you have in one reply and I will keep the escalation moving."
+        )
+    if support_scope_status == "unsupported":
+        return (
+            "## Unsupported Site Escalation\n\n"
+            "This site is outside Delta AI support scope.\n\n"
+            f"{progress_text}"
+            "I can still help collect what is needed for the escalation ticket. Please share:\n"
+            f"{field_list}\n\n"
+            "Send whatever remaining details you have in one reply and I will continue from there."
+        )
+    return (
+        "## Ticket Information Needed\n\n"
+        f"{progress_text}"
+        "I can create the support ticket for you. To get it submitted, please share:\n"
+        f"{field_list}\n\n"
+        "Send whatever remaining details you have in one reply and I will continue from there."
+    )
+
+
 class FakeLLMClient:
     def __init__(self):
-        self.extract_evidence_calls = 0
+        self.classify_intent_calls = 0
 
     def classify_intent(self, request, history=None):
+        self.classify_intent_calls += 1
         message = request.message
         device_info = request.device_info
         lowered = message.lower()
         user_query = message
+        evidence = merge_evidence_from_conversation(
+            current_message=request.message,
+            request_evidence=request.evidence_pack,
+            history=history or [],
+        )
         if history:
             recent_context = " ".join(item.content for item in history[-2:])
             user_query = f"{message} | context: {recent_context}"
         history_text = " ".join(item.content.lower() for item in (history or []))
+        risk_flags = [term for term in ("smoke", "fire", "sparking") if term in f"{history_text} {lowered}"]
         missing_info = []
         system_message = None
         has_domain_context = any(
@@ -55,7 +98,7 @@ class FakeLLMClient:
             unsupported_reason = UnsupportedReason.utility_scale_or_embedded_network
         elif any(term in lowered for term in ("home", "residential", "home use", "my system", "our system", "owner", "customer owner")):
             support_scope_status = SupportScopeStatus.supported
-        if "ticket" in lowered:
+        if risk_flags or "ticket" in lowered:
             intent = IntentType.escalate
         elif is_brief and not has_domain_context:
             intent = IntentType.general_question
@@ -69,13 +112,24 @@ class FakeLLMClient:
             )
         else:
             intent = IntentType.troubleshoot
+        evidence_collection_response_text = None
+        active_escalation = request.request_ticket or any(item.escalation_active for item in (history or []) if item.role == ConversationRole.assistant)
+        if active_escalation or intent == IntentType.escalate:
+            evidence_collection_response_text = build_fake_evidence_collection_response(
+                merged_evidence=evidence,
+                missing_fields=evidence.missing_core_fields(),
+                support_scope_status=support_scope_status.value,
+                safety_assessment={"escalate_immediately": bool(risk_flags)},
+            )
         return IntentClassification(
             intent=intent,
             device_type=device_info.device_type if device_info else DeviceType.inverter,
             user_query=user_query,
             error_code="E031" if "E031" in message else None,
             model_number=device_info.model_number if device_info else None,
-            risk_flags=[],
+            evidence_pack=evidence,
+            evidence_collection_response_text=evidence_collection_response_text,
+            risk_flags=risk_flags,
             missing_info=missing_info,
             support_scope_status=support_scope_status,
             unsupported_reason=unsupported_reason,
@@ -98,15 +152,6 @@ class FakeLLMClient:
 
     def create_embedding(self, text, dimensions=None):
         return None
-
-    def extract_evidence(self, request, history=None):
-        self.extract_evidence_calls += 1
-        return merge_evidence_from_conversation(
-            current_message=request.message,
-            request_evidence=request.evidence_pack,
-            history=history or [],
-        )
-
 
 class FakeSearchAdapter:
     def __init__(self):
@@ -173,7 +218,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "troubleshooting")
         self.assertEqual(state["next_action"], "continue_troubleshooting")
         self.assertEqual(state["citations"], ["doc-1"])
-        self.assertEqual(self.llm_client.extract_evidence_calls, 0)
+        self.assertEqual(self.llm_client.classify_intent_calls, 1)
 
     def test_unknown_scope_continues_to_troubleshooting(self):
         request = ChatMessageRequest(
@@ -209,6 +254,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "evidence_collection")
         self.assertIn("serial_number", state["missing_fields"])
         self.assertEqual(state["next_action"], "collect_evidence")
+        self.assertIn("I can help create the support ticket", state["response_text"])
+        self.assertNotIn("## Evidence Required", state["response_text"])
 
     def test_escalation_with_complete_evidence_creates_ticket(self):
         request = ChatMessageRequest(
@@ -235,7 +282,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("Evidence pack", self.ticket_adapter.last_payload.message_html)
         self.assertIn("Serial number", self.ticket_adapter.last_payload.message_html)
         self.assertIn("Additional info", self.ticket_adapter.last_payload.message_html)
-        self.assertEqual(self.llm_client.extract_evidence_calls, 1)
+        self.assertEqual(self.llm_client.classify_intent_calls, 1)
 
     def test_removed_fields_are_ignored(self):
         evidence = EvidencePack.model_validate(
@@ -269,6 +316,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "evidence_collection")
         self.assertEqual(state["support_scope_status"], "unsupported")
         self.assertNotIn("retrieved_docs", state)
+        self.assertIn("I can still help collect what is needed for the escalation ticket.", state["response_text"])
 
     def test_message_only_unsupported_site_skips_troubleshooting(self):
         request = ChatMessageRequest(
@@ -357,6 +405,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(merged.serial_number, "SN12345")
         self.assertEqual(merged.additional_info, "Issue persists after restart and trips every evening.")
 
+    def test_extract_message_evidence_normalizes_user_role_to_installer_or_customer(self):
+        installer_evidence = extract_message_evidence("I am the installer for this inverter site.")
+        customer_evidence = extract_message_evidence("I am the customer and this is my system.")
+
+        self.assertEqual(installer_evidence.user_role, "Installer")
+        self.assertEqual(customer_evidence.user_role, "customer")
+
     def test_escalation_follow_up_stays_on_evidence_collection(self):
         request = ChatMessageRequest(message="Serial number SN12345")
         history = [
@@ -389,6 +444,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(state["previous_escalation_active"])
         self.assertNotIn("serial_number", state["missing_fields"])
         self.assertEqual(state["next_action"], "collect_evidence")
+        self.assertIn("## Ticket Information Needed", state["response_text"])
+        self.assertIn("I can create the support ticket for you.", state["response_text"])
+        self.assertNotIn("## Evidence Required", state["response_text"])
 
     def test_escalation_follow_up_uses_history_before_asking_again(self):
         request = ChatMessageRequest(message="Please create the ticket")

@@ -20,10 +20,7 @@ def build_intake_node(llm_client):
             escalation_active = previous_escalation_active or request.request_ticket or classification.intent == IntentType.escalate
         if escalation_active and classification.intent != IntentType.escalate:
             classification = classification.model_copy(update={"intent": IntentType.escalate, "system_message": None})
-        merged_evidence = baseline_evidence
-        if escalation_active:
-            escalation_request = request.model_copy(update={"evidence_pack": baseline_evidence})
-            merged_evidence = llm_client.extract_evidence(request=escalation_request, history=history)
+        merged_evidence = classification.evidence_pack.merge(baseline_evidence)
         output = {
             "user_query": classification.user_query or request.message,
             "classification": classification.model_dump(mode="json"),
