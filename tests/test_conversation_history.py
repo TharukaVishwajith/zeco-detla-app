@@ -9,6 +9,7 @@ from app.models.conversation import (
     DeviceType,
     IntentType,
     TroubleshootingAction,
+    TroubleshootingResponseSource,
 )
 from app.services.conversation_history_service import ConversationHistoryService
 
@@ -76,6 +77,7 @@ class FakeWorkflow:
             "response_text": f"history={len(history)} prior={prior_assistant}",
             "citations": ["doc-1"],
             "next_action": TroubleshootingAction.continue_troubleshooting.value,
+            "response_source": TroubleshootingResponseSource.grounded_kb.value,
         }
 
 
@@ -209,12 +211,14 @@ class DynamoConversationRepositoryTests(unittest.TestCase):
                 content="Please provide the serial number.",
                 conversation_state=ConversationState.awaiting_evidence,
                 escalation_active=True,
+                response_source=TroubleshootingResponseSource.internal_fallback,
             ),
         )
 
         restored = repository._deserialize_message(item)  # noqa: SLF001 - validating item fields directly
         self.assertTrue(restored.escalation_active)
         self.assertEqual(restored.conversation_state, ConversationState.awaiting_evidence)
+        self.assertEqual(restored.response_source, TroubleshootingResponseSource.internal_fallback)
 
 
 if __name__ == "__main__":

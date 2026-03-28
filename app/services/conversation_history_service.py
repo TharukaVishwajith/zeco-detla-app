@@ -38,6 +38,7 @@ class ConversationHistoryService:
         system_message: str | None = None,
         escalation_active: bool | None = None,
         evidence_snapshot: dict | None = None,
+        response_source=None,
         conversation_state=None,
     ) -> None:
         if not request.request_id or not self.configured:
@@ -63,6 +64,7 @@ class ConversationHistoryService:
                 unsupported_reason=classification.unsupported_reason,
                 escalation_active=escalation_active,
                 evidence_snapshot=evidence_snapshot,
+                response_source=response_source,
             ),
         ]
 

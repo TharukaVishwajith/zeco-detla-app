@@ -7,10 +7,12 @@ logger = logging.getLogger(__name__)
 
 INTENT_AGENT_NAME = "intent_classifier"
 TROUBLESHOOTING_AGENT_NAME = "troubleshooting"
+FALLBACK_TROUBLESHOOTING_AGENT_NAME = "fallback_troubleshooting"
 
 DEFAULT_AGENT_MODEL_BY_NAME = {
     INTENT_AGENT_NAME: "gpt-5.4-mini",
     TROUBLESHOOTING_AGENT_NAME: "gpt-5.4-mini",
+    FALLBACK_TROUBLESHOOTING_AGENT_NAME: "gpt-5.4-mini",
 }
 
 

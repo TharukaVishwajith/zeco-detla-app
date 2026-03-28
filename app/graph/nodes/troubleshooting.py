@@ -26,6 +26,7 @@ def build_troubleshooting_node(llm_client, validation_service):
                 message=user_query,
                 retrieved_docs=documents,
                 classification=classification,
+                validation_service=validation_service,
             )
 
         if skip_validation:
@@ -34,12 +35,9 @@ def build_troubleshooting_node(llm_client, validation_service):
             is_valid, errors = validation_service.validate_troubleshooting_response(response=response, retrieved_docs=documents)
         if not is_valid:
             fallback_text = (
-                "## I need one more detail\n\n"
-                "I could not give a safe grounded answer from the Delta support content yet.\n\n"
-                "Please reply with:\n"
-                "1. The exact model number\n"
-                "2. The exact fault text shown on screen\n\n"
-                "If you already have both, you can also ask me to escalate it."
+                "## Safe next step\n\n"
+                "I could not complete a reliable support answer this turn.\n\n"
+                "Please reply with the exact device display text or the latest visible symptom, or ask me to escalate the issue."
             )
             response = TroubleshootingResponse(
                 response_text=fallback_text,
@@ -57,6 +55,7 @@ def build_troubleshooting_node(llm_client, validation_service):
             "next_action": response.next_action.value,
             "current_phase": "troubleshooting",
             "escalation_active": response.next_action in {TroubleshootingAction.collect_evidence, TroubleshootingAction.escalate},
+            "response_source": response.response_source.value,
             "errors": errors if not is_valid else [],
         }
 

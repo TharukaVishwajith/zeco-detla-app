@@ -132,6 +132,8 @@ class DynamoConversationRepository:
             item["escalation_active"] = message.escalation_active
         if message.evidence_snapshot:
             item["evidence_snapshot"] = message.evidence_snapshot.model_dump(exclude_none=True)
+        if message.response_source:
+            item["response_source"] = message.response_source.value
         return item
 
     def _deserialize_message(self, item: dict[str, Any]) -> ConversationMessage:
@@ -151,6 +153,7 @@ class DynamoConversationRepository:
             "unsupported_reason": item.get("unsupported_reason"),
             "escalation_active": item.get("escalation_active"),
             "evidence_snapshot": item.get("evidence_snapshot"),
+            "response_source": item.get("response_source"),
         }
         return ConversationMessage.model_validate(payload)
 

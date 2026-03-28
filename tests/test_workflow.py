@@ -17,6 +17,7 @@ from app.models.conversation import (
     SupportScopeStatus,
     TroubleshootingAction,
     TroubleshootingResponse,
+    TroubleshootingResponseSource,
     UnsupportedReason,
 )
 from app.models.ticket import TicketResponse
@@ -142,7 +143,7 @@ class FakeLLMClient:
             system_message=system_message,
         )
 
-    def generate_troubleshooting_response(self, message, retrieved_docs, classification):
+    def generate_troubleshooting_response(self, message, retrieved_docs, classification, validation_service=None):  # noqa: ARG002
         citations = [doc.doc_id for doc in retrieved_docs[:1]]
         response_text = "Follow the documented restart sequence from the retrieved Delta KB article."
         if "still the same" in message.lower() and "context:" in message:
@@ -153,6 +154,7 @@ class FakeLLMClient:
             response_text=response_text,
             citations=citations,
             next_action=TroubleshootingAction.continue_troubleshooting,
+            response_source=TroubleshootingResponseSource.grounded_kb,
         )
 
     def create_embedding(self, text, dimensions=None):
@@ -208,6 +210,16 @@ class WorkflowTests(unittest.TestCase):
             retrieval_top_k=5,
         )
         self.workflow = build_workflow(dependencies)
+
+    def _build_workflow_with_client(self, llm_client):
+        dependencies = WorkflowDependencies(
+            llm_client=llm_client,
+            retrieval_service=RetrievalService(self.search_adapter),
+            validation_service=ValidationService(),
+            ticket_service=TicketService(self.ticket_adapter),
+            retrieval_top_k=5,
+        )
+        return build_workflow(dependencies)
 
     def test_troubleshooting_path_returns_grounded_response(self):
         request = ChatMessageRequest(
@@ -386,6 +398,43 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state.get("history"), [])
         self.assertIn("My inverter shows E031 after restart", self.search_adapter.last_query)
         self.assertEqual(state["merged_evidence_pack"]["serial_number"], "SN12345")
+
+    def test_internal_fallback_continue_troubleshooting_stays_in_troubleshooting(self):
+        class FallbackContinueClient(FakeLLMClient):
+            def generate_troubleshooting_response(self, message, retrieved_docs, classification, validation_service=None):  # noqa: ARG002
+                return TroubleshootingResponse(
+                    response_text="## Check the inverter state\n\n1. Note the fault text.\n2. Restart once.\n\nReply with the updated display text.",
+                    citations=[],
+                    next_action=TroubleshootingAction.continue_troubleshooting,
+                    response_source=TroubleshootingResponseSource.internal_fallback,
+                )
+
+        workflow = self._build_workflow_with_client(FallbackContinueClient())
+        request = ChatMessageRequest(message="My inverter shows E031 after restart")
+
+        state = workflow.invoke({"request": request.model_dump(mode="json")})
+
+        self.assertEqual(state["current_phase"], "troubleshooting")
+        self.assertEqual(state["next_action"], "continue_troubleshooting")
+        self.assertEqual(state["response_source"], TroubleshootingResponseSource.internal_fallback.value)
+
+    def test_internal_fallback_escalate_routes_to_evidence_collection(self):
+        class FallbackEscalateClient(FakeLLMClient):
+            def generate_troubleshooting_response(self, message, retrieved_docs, classification, validation_service=None):  # noqa: ARG002
+                return TroubleshootingResponse(
+                    response_text="## Safety check\n\n1. Stop operating the inverter.\n2. Note the exact fault text.\n\nReply with the fault text so I can collect escalation details.",
+                    citations=[],
+                    next_action=TroubleshootingAction.escalate,
+                    response_source=TroubleshootingResponseSource.internal_fallback,
+                )
+
+        workflow = self._build_workflow_with_client(FallbackEscalateClient())
+        request = ChatMessageRequest(message="My inverter shows E031 after restart")
+
+        state = workflow.invoke({"request": request.model_dump(mode="json")})
+
+        self.assertEqual(state["current_phase"], "evidence_collection")
+        self.assertEqual(state["response_source"], TroubleshootingResponseSource.internal_fallback.value)
 
     def test_merge_evidence_preserves_explicit_additional_info(self):
         merged = merge_evidence_from_conversation(

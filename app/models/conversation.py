@@ -92,6 +92,11 @@ class TroubleshootingAction(str, Enum):
     resolved = "resolved"
 
 
+class TroubleshootingResponseSource(str, Enum):
+    grounded_kb = "grounded_kb"
+    internal_fallback = "internal_fallback"
+
+
 class ConversationState(str, Enum):
     needs_clarification = "needs_clarification"
     troubleshooting = "troubleshooting"
@@ -104,6 +109,8 @@ class TroubleshootingResponse(BaseModel):
     response_text: str
     citations: list[str] = Field(default_factory=list)
     next_action: TroubleshootingAction
+    handoff_to_fallback: bool = False
+    response_source: TroubleshootingResponseSource = TroubleshootingResponseSource.grounded_kb
 
 
 class ConversationMessage(BaseModel):
@@ -122,6 +129,7 @@ class ConversationMessage(BaseModel):
     unsupported_reason: UnsupportedReason | None = None
     escalation_active: bool | None = None
     evidence_snapshot: EvidencePack | None = None
+    response_source: TroubleshootingResponseSource | None = None
 
 
 class ChatMessageRequest(BaseModel):

@@ -9,7 +9,32 @@ from app.models.conversation import (
     RetrievedDocument,
     SupportScopeStatus,
     TroubleshootingAction,
+    TroubleshootingResponse,
+    TroubleshootingResponseSource,
 )
+from app.services.validation_service import ValidationService
+
+
+class ScriptedOpenAIClient(OpenAIClient):
+    def __init__(self, payloads):
+        super().__init__(
+            api_key=None,
+            chat_model="gpt-4o-mini",
+            embedding_model="text-embedding-3-small",
+        )
+        self.client = object()
+        self.payloads = payloads
+        self.seen_agents: list[str] = []
+
+    def _invoke_agent_json(self, agent_name: str, system_prompt: str, user_prompt: str) -> dict | None:  # noqa: ARG002
+        self.seen_agents.append(agent_name)
+        values = self.payloads.get(agent_name, [])
+        if not values:
+            raise RuntimeError(f"unexpected agent invocation: {agent_name}")
+        value = values.pop(0)
+        if isinstance(value, Exception):
+            raise value
+        return value
 
 
 class OpenAIClientResponseTests(unittest.TestCase):
@@ -28,7 +53,7 @@ class OpenAIClientResponseTests(unittest.TestCase):
         self.assertIn("The exact alarm or error text", message)
         self.assertNotIn("technical details for", message)
 
-    def test_grounded_fallback_without_docs_asks_for_minimum_details(self):
+    def test_grounded_fallback_without_docs_is_last_resort_safe_message(self):
         classification = IntentClassification(
             intent=IntentType.troubleshoot,
             device_type=DeviceType.inverter,
@@ -42,10 +67,9 @@ class OpenAIClientResponseTests(unittest.TestCase):
         )
 
         self.assertEqual(response.next_action, TroubleshootingAction.ask_question)
-        self.assertIn("## Let’s narrow this down", response.response_text)
-        self.assertIn("1. The model number", response.response_text)
-        self.assertIn("2. The exact error code or fault text", response.response_text)
-        self.assertIn("Reply with those details", response.response_text)
+        self.assertIn("## Safe next step", response.response_text)
+        self.assertIn("I could not complete a reliable support answer this turn.", response.response_text)
+        self.assertEqual(response.response_source, TroubleshootingResponseSource.grounded_kb)
 
     def test_fallback_evidence_collection_response_keeps_evidence_optional(self):
         response_text = self.client._fallback_evidence_collection_response(  # noqa: SLF001 - validating helper output directly
@@ -59,7 +83,7 @@ class OpenAIClientResponseTests(unittest.TestCase):
         self.assertIn("If you have any of these additional details", response_text)
         self.assertIn("If not, tell me and I will proceed with the information already gathered.", response_text)
 
-    def test_grounded_fallback_with_docs_uses_simple_step_format(self):
+    def test_grounded_agent_handoff_uses_internal_fallback_answer(self):
         classification = IntentClassification(
             intent=IntentType.troubleshoot,
             device_type=DeviceType.inverter,
@@ -74,18 +98,140 @@ class OpenAIClientResponseTests(unittest.TestCase):
                 content="Check the display, acknowledge the alarm, and run the restart sequence",
             )
         ]
-
-        response = self.client._grounded_fallback_response(  # noqa: SLF001 - validating helper output directly
+        client = ScriptedOpenAIClient(
+            payloads={
+                "troubleshooting": [
+                    {
+                        "response_text": "KB coverage insufficient.",
+                        "citations": [],
+                        "next_action": "ask_question",
+                        "handoff_to_fallback": True,
+                        "response_source": "grounded_kb",
+                    }
+                ],
+                "fallback_troubleshooting": [
+                    {
+                        "response_text": "## Check the restart state\n\n1. Wait 60 seconds.\n2. Restart the inverter once.\n\nReply with the display text after restart.",
+                        "citations": ["doc-1"],
+                        "next_action": "continue_troubleshooting",
+                        "handoff_to_fallback": False,
+                        "response_source": "internal_fallback",
+                    }
+                ],
+            }
+        )
+        response = client.generate_troubleshooting_response(
             message="Still showing E031",
             retrieved_docs=retrieved_docs,
             classification=classification,
+            validation_service=ValidationService(),
         )
 
         self.assertEqual(response.next_action, TroubleshootingAction.continue_troubleshooting)
-        self.assertEqual(response.citations, ["doc-1"])
-        self.assertIn("## First, check the E031 condition", response.response_text)
-        self.assertIn("1. Check the display, acknowledge the alarm, and run the restart sequence.", response.response_text)
-        self.assertIn("Reply with the exact display message or LED state", response.response_text)
+        self.assertEqual(response.response_source, TroubleshootingResponseSource.internal_fallback)
+        self.assertEqual(response.citations, [])
+        self.assertIn("## Check the restart state", response.response_text)
+        self.assertEqual(client.seen_agents, ["troubleshooting", "fallback_troubleshooting"])
+
+    def test_retrieval_empty_uses_internal_fallback_when_available(self):
+        classification = IntentClassification(
+            intent=IntentType.troubleshoot,
+            device_type=DeviceType.inverter,
+            support_scope_status=SupportScopeStatus.unknown,
+        )
+        client = ScriptedOpenAIClient(
+            payloads={
+                "fallback_troubleshooting": [
+                    {
+                        "response_text": "## Check the front panel\n\n1. Confirm the inverter display is on.\n2. Note any fault text.\n\nReply with the exact text shown.",
+                        "citations": [],
+                        "next_action": "ask_question",
+                        "handoff_to_fallback": False,
+                        "response_source": "internal_fallback",
+                    }
+                ]
+            }
+        )
+
+        response = client.generate_troubleshooting_response(
+            message="not working",
+            retrieved_docs=[],
+            classification=classification,
+            validation_service=ValidationService(),
+        )
+
+        self.assertEqual(response.response_source, TroubleshootingResponseSource.internal_fallback)
+        self.assertEqual(client.seen_agents, ["fallback_troubleshooting"])
+
+    def test_fallback_failure_returns_last_resort_response(self):
+        classification = IntentClassification(
+            intent=IntentType.troubleshoot,
+            device_type=DeviceType.inverter,
+            support_scope_status=SupportScopeStatus.unknown,
+        )
+        client = ScriptedOpenAIClient(payloads={"fallback_troubleshooting": [RuntimeError("boom")]})
+
+        response = client.generate_troubleshooting_response(
+            message="not working",
+            retrieved_docs=[],
+            classification=classification,
+            validation_service=ValidationService(),
+        )
+
+        self.assertEqual(response.next_action, TroubleshootingAction.ask_question)
+        self.assertIn("## Safe next step", response.response_text)
+
+    def test_validation_allows_uncited_internal_fallback_but_rejects_uncited_grounded(self):
+        validation_service = ValidationService()
+        docs = [
+            RetrievedDocument(
+                doc_id="doc-1",
+                content="Restart the inverter safely.",
+            )
+        ]
+
+        grounded = TroubleshootingResponse(
+            response_text="Use the restart procedure.",
+            citations=[],
+            next_action=TroubleshootingAction.continue_troubleshooting,
+            response_source=TroubleshootingResponseSource.grounded_kb,
+        )
+        fallback = TroubleshootingResponse(
+            response_text="Use the restart procedure.",
+            citations=[],
+            next_action=TroubleshootingAction.continue_troubleshooting,
+            response_source=TroubleshootingResponseSource.internal_fallback,
+        )
+
+        grounded_valid, grounded_errors = validation_service.validate_troubleshooting_response(grounded, docs)
+        fallback_valid, fallback_errors = validation_service.validate_troubleshooting_response(fallback, docs)
+
+        self.assertFalse(grounded_valid)
+        self.assertIn("grounded response must include citations", grounded_errors)
+        self.assertTrue(fallback_valid)
+        self.assertEqual(fallback_errors, [])
+
+    def test_validation_rejects_grounded_insufficient_info_without_handoff(self):
+        validation_service = ValidationService()
+        docs = [
+            RetrievedDocument(
+                doc_id="doc-1",
+                content="Restart the inverter safely.",
+            )
+        ]
+
+        grounded = TroubleshootingResponse(
+            response_text="I need more information before I can determine the next step.",
+            citations=["doc-1"],
+            next_action=TroubleshootingAction.ask_question,
+            handoff_to_fallback=False,
+            response_source=TroubleshootingResponseSource.grounded_kb,
+        )
+
+        grounded_valid, grounded_errors = validation_service.validate_troubleshooting_response(grounded, docs)
+
+        self.assertFalse(grounded_valid)
+        self.assertIn("grounded response admits insufficient information without fallback handoff", grounded_errors)
 
 
 if __name__ == "__main__":

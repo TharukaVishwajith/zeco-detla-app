@@ -8,6 +8,7 @@ from openai import OpenAI
 
 from app.core.conversation_context import latest_escalation_state, merge_evidence_from_conversation
 from app.core.agent_models import (
+    FALLBACK_TROUBLESHOOTING_AGENT_NAME,
     INTENT_AGENT_NAME,
     TROUBLESHOOTING_AGENT_NAME,
     AgentModelConfig,
@@ -23,6 +24,7 @@ from app.models.conversation import (
     SupportScopeStatus,
     TroubleshootingAction,
     TroubleshootingResponse,
+    TroubleshootingResponseSource,
     UnsupportedReason,
 )
 from app.models.evidence import EvidencePack, format_markdown_field_list, humanize_evidence_field
@@ -159,11 +161,55 @@ class OpenAIClient:
         message: str,
         retrieved_docs: list[RetrievedDocument],
         classification: IntentClassification,
+        validation_service=None,
     ) -> TroubleshootingResponse:
-        fallback = self._grounded_fallback_response(message, retrieved_docs, classification)
-        if not self.client or not retrieved_docs:
-            return fallback
+        last_resort = self._grounded_fallback_response(message, retrieved_docs, classification)
+        if not self.client:
+            return last_resort
 
+        if not retrieved_docs:
+            return self._generate_internal_fallback_response(
+                message=message,
+                retrieved_docs=retrieved_docs,
+                classification=classification,
+                last_resort=last_resort,
+            )
+
+        grounded_response = self._generate_grounded_troubleshooting_response(
+            message=message,
+            retrieved_docs=retrieved_docs,
+            classification=classification,
+        )
+        if grounded_response.handoff_to_fallback:
+            return self._generate_internal_fallback_response(
+                message=message,
+                retrieved_docs=retrieved_docs,
+                classification=classification,
+                last_resort=last_resort,
+            )
+
+        if validation_service is not None:
+            is_valid, errors = validation_service.validate_troubleshooting_response(
+                response=grounded_response,
+                retrieved_docs=retrieved_docs,
+            )
+            if not is_valid:
+                logger.warning("Grounded troubleshooting response failed validation, using internal fallback: %s", errors)
+                return self._generate_internal_fallback_response(
+                    message=message,
+                    retrieved_docs=retrieved_docs,
+                    classification=classification,
+                    last_resort=last_resort,
+                )
+
+        return grounded_response
+
+    def _generate_grounded_troubleshooting_response(
+        self,
+        message: str,
+        retrieved_docs: list[RetrievedDocument],
+        classification: IntentClassification,
+    ) -> TroubleshootingResponse:
         prompt = self._load_prompt("troubleshooting_prompt.txt")
         documents_block = "\n\n".join(
             f"Doc ID: {doc.doc_id}\nTitle: {doc.title}\nSection: {doc.section_title}\nContent: {doc.content}"
@@ -186,8 +232,54 @@ class OpenAIClient:
                 raise RuntimeError("LangChain agent unavailable for troubleshooting generation")
             return TroubleshootingResponse.model_validate(payload)
         except Exception as exc:  # pragma: no cover - network/API failure path
-            logger.warning("OpenAI troubleshooting generation failed, using fallback: %s", exc)
-            return fallback
+            logger.warning("OpenAI grounded troubleshooting generation failed, using internal fallback: %s", exc)
+            return TroubleshootingResponse(
+                response_text="INTERNAL_FALLBACK_REQUIRED",
+                citations=[],
+                next_action=TroubleshootingAction.ask_question,
+                handoff_to_fallback=True,
+                response_source=TroubleshootingResponseSource.grounded_kb,
+            )
+
+    def _generate_internal_fallback_response(
+        self,
+        *,
+        message: str,
+        retrieved_docs: list[RetrievedDocument],
+        classification: IntentClassification,
+        last_resort: TroubleshootingResponse,
+    ) -> TroubleshootingResponse:
+        prompt = self._load_prompt("fallback_troubleshooting_prompt.txt")
+        documents_block = "\n\n".join(
+            f"Doc ID: {doc.doc_id}\nTitle: {doc.title}\nSection: {doc.section_title}\nContent: {doc.content}"
+            for doc in retrieved_docs
+        ) or "(none)"
+        user_prompt = (
+            f"User message:\n{message}\n\n"
+            f"Classification:\n{classification.model_dump_json()}\n\n"
+            f"Retrieved Delta KB documents already checked:\n{documents_block}\n\n"
+            "Return JSON only."
+        )
+
+        try:
+            payload = self._invoke_agent_json(
+                agent_name=FALLBACK_TROUBLESHOOTING_AGENT_NAME,
+                system_prompt=prompt,
+                user_prompt=user_prompt,
+            )
+            if payload is None:
+                raise RuntimeError("LangChain agent unavailable for fallback troubleshooting generation")
+            response = TroubleshootingResponse.model_validate(payload)
+            return response.model_copy(
+                update={
+                    "handoff_to_fallback": False,
+                    "response_source": TroubleshootingResponseSource.internal_fallback,
+                    "citations": [],
+                }
+            )
+        except Exception as exc:  # pragma: no cover - network/API failure path
+            logger.warning("OpenAI fallback troubleshooting generation failed, using last-resort prompt: %s", exc)
+            return last_resort
 
     def _grounded_fallback_response(
         self,
@@ -195,42 +287,17 @@ class OpenAIClient:
         retrieved_docs: list[RetrievedDocument],
         classification: IntentClassification,
     ) -> TroubleshootingResponse:
-        if not retrieved_docs:
-            response_text = (
-                "## Let’s narrow this down\n\n"
-                "I do not have enough detail yet to match the issue to a Delta support article.\n\n"
-                "Please send:\n"
-                "1. The model number\n"
-                "2. The exact error code or fault text\n"
-                "3. Any recent change before this started\n\n"
-                "Reply with those details and I’ll give you the next step."
-            )
-            return TroubleshootingResponse(
-                response_text=response_text,
-                citations=[],
-                next_action=TroubleshootingAction.ask_question,
-            )
-
-        primary_doc = retrieved_docs[0]
-        excerpt = primary_doc.content.strip().replace("\n", " ")
-        excerpt = excerpt[:320].rstrip()
-        opening = "## First, try this"
-        if classification.error_code:
-            opening = f"## First, check the {classification.error_code} condition"
-
         response_text = (
-            f"{opening}\n\n"
-            "Follow this Delta-documented step:\n\n"
-            "1. "
-            f"{excerpt}.\n\n"
+            "## Safe next step\n\n"
+            "I could not complete a reliable support answer this turn.\n\n"
+            "Please stop here for now and re-try the request or escalate to a support specialist if the issue is urgent.\n\n"
+            "If you continue, reply with the exact device display text or the latest visible symptom."
         )
-        if classification.error_code:
-            response_text += f"This matches the reported code: `{classification.error_code}`.\n\n"
-        response_text += "Reply with the exact display message or LED state after this step."
         return TroubleshootingResponse(
             response_text=response_text,
-            citations=[doc.doc_id for doc in retrieved_docs[:3]],
-            next_action=TroubleshootingAction.continue_troubleshooting,
+            citations=[],
+            next_action=TroubleshootingAction.ask_question,
+            response_source=TroubleshootingResponseSource.grounded_kb,
         )
 
     def _fallback_evidence_collection_response(
