@@ -86,10 +86,7 @@ class FakeLLMClient:
         risk_flags = [term for term in ("smoke", "fire", "sparking") if term in f"{history_text} {lowered}"]
         missing_info = []
         system_message = None
-        has_domain_context = any(
-            term in f"{history_text} {lowered}" for term in ("inverter", "battery", "pv", "monitor", "error", "fault")
-        )
-        is_brief = 0 < len(lowered.split()) <= 4
+        normalized = " ".join(lowered.split()).rstrip("?.!")
         support_scope_status = SupportScopeStatus.unknown
         unsupported_reason = None
         if any(term in lowered for term in ("80 kw", "80kw", "over 30 kw", "greater than 30 kw", "above 30 kw")):
@@ -103,9 +100,20 @@ class FakeLLMClient:
             unsupported_reason = UnsupportedReason.utility_scale_or_embedded_network
         elif any(term in lowered for term in ("home", "residential", "home use", "my system", "our system", "owner", "customer owner")):
             support_scope_status = SupportScopeStatus.supported
+        needs_clarification = (
+            not history
+            and "?" not in message
+            and device_info.device_type == DeviceType.unknown
+            and not device_info.model_number
+            and not any(character.isdigit() for character in normalized)
+            and 0 < len(normalized.split()) <= 2
+            and len(normalized) <= 10
+        )
         if risk_flags or "ticket" in lowered:
             intent = IntentType.escalate
-        elif is_brief and not has_domain_context:
+        elif "?" in message:
+            intent = IntentType.general_question
+        elif needs_clarification:
             intent = IntentType.general_question
             missing_info.append("issue_or_question_details")
             system_message = (
@@ -142,7 +150,7 @@ class FakeLLMClient:
             system_message=system_message,
         )
 
-    def generate_troubleshooting_response(self, message, retrieved_docs, classification):
+    def generate_troubleshooting_response(self, message, retrieved_docs, classification, history=None):
         citations = [doc.doc_id for doc in retrieved_docs[:1]]
         if not retrieved_docs:
             response_text = (
@@ -279,7 +287,6 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "troubleshooting")
         self.assertEqual(state["next_action"], "continue_troubleshooting")
         self.assertEqual(state["citations"], [])
-        self.assertIn("If the issue persists, would you like me to help create a support ticket?", state["response_text"])
         self.assertIn("try the usual checks", state["response_text"].lower())
 
     def test_unknown_scope_continues_to_troubleshooting(self):
@@ -405,6 +412,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["user_query"], "Hi")
         self.assertNotIn("retrieved_docs", state)
         self.assertNotIn("ticket_response", state)
+
+    def test_non_greeting_question_moves_past_intake_and_gets_answered(self):
+        request = ChatMessageRequest(message="What does standby mode mean?")
+        state = self.workflow.invoke({"request": request.model_dump(mode="json")})
+
+        self.assertEqual(state["current_phase"], "troubleshooting")
+        self.assertEqual(state["next_action"], "continue_troubleshooting")
+        self.assertNotIn("system_message", state)
+        self.assertEqual(state["citations"], ["doc-1"])
 
     def test_follow_up_message_uses_prior_history_context(self):
         request = ChatMessageRequest(message="Still the same after the restart")

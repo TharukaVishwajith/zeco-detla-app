@@ -2,6 +2,7 @@ import unittest
 
 from app.adapters.openai_client import OpenAIClient
 from app.models.conversation import (
+    ChatMessageRequest,
     DeviceType,
     EvidencePack,
     IntentClassification,
@@ -28,7 +29,23 @@ class OpenAIClientResponseTests(unittest.TestCase):
         self.assertIn("The exact alarm or error text", message)
         self.assertNotIn("technical details for", message)
 
-    def test_grounded_fallback_without_docs_answers_directly_and_offers_ticket(self):
+    def test_non_greeting_question_passes_through_without_clarification(self):
+        classification = self.client.classify_intent(
+            ChatMessageRequest(message="What does standby mode mean?")
+        )
+
+        self.assertEqual(classification.intent, IntentType.general_question)
+        self.assertIsNone(classification.system_message)
+        self.assertNotIn("issue_or_question_details", classification.missing_info)
+
+    def test_greeting_only_message_gets_clarification_prompt(self):
+        classification = self.client.classify_intent(ChatMessageRequest(message="Hi"))
+
+        self.assertEqual(classification.intent, IntentType.general_question)
+        self.assertIn("issue_or_question_details", classification.missing_info)
+        self.assertIn("## Tell me a bit more", classification.system_message or "")
+
+    def test_grounded_fallback_without_docs_answers_directly(self):
         classification = IntentClassification(
             intent=IntentType.troubleshoot,
             device_type=DeviceType.inverter,
@@ -45,7 +62,7 @@ class OpenAIClientResponseTests(unittest.TestCase):
         self.assertEqual(response.next_action, TroubleshootingAction.continue_troubleshooting)
         self.assertIn("## First, check the E031 condition", response.response_text)
         self.assertIn("1. Confirm the device is powered", response.response_text)
-        self.assertIn("If the issue persists, would you like me to help create a support ticket?", response.response_text)
+        self.assertNotIn("Reply with the exact display text or LED state after these checks.", response.response_text)
 
     def test_fallback_evidence_collection_response_keeps_evidence_optional(self):
         response_text = self.client._fallback_evidence_collection_response(  # noqa: SLF001 - validating helper output directly
@@ -85,7 +102,7 @@ class OpenAIClientResponseTests(unittest.TestCase):
         self.assertEqual(response.citations, ["doc-1"])
         self.assertIn("## First, check the E031 condition", response.response_text)
         self.assertIn("1. Check the display, acknowledge the alarm, and run the restart sequence.", response.response_text)
-        self.assertIn("If the issue persists, would you like me to help create a support ticket?", response.response_text)
+        self.assertNotIn("Reply with the exact display message or LED state after this step.", response.response_text)
 
     def test_resolved_troubleshooting_response_closes_conversation(self):
         response = self.client.generate_resolved_troubleshooting_response()

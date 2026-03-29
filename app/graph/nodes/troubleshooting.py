@@ -1,20 +1,10 @@
 from app.models.conversation import (
     ChatMessageRequest,
+    ConversationMessage,
     IntentClassification,
     RetrievedDocument,
     TroubleshootingAction,
-    TroubleshootingResponse,
 )
-
-
-def _ensure_support_ticket_offer(response_text: str) -> str:
-    ticket_offer = "If the issue persists, would you like me to help create a support ticket?"
-    if ticket_offer.lower() in response_text.lower():
-        return response_text
-    stripped = response_text.rstrip()
-    if not stripped:
-        return ticket_offer
-    return f"{stripped}\n\n{ticket_offer}"
 
 
 def build_troubleshooting_node(llm_client, validation_service):
@@ -23,6 +13,7 @@ def build_troubleshooting_node(llm_client, validation_service):
         classification = IntentClassification.model_validate(state["classification"])
         user_query = state.get("user_query") or request.message
         documents = [RetrievedDocument.model_validate(item) for item in state.get("retrieved_docs", [])]
+        source_history = [ConversationMessage.model_validate(item) for item in state.get("source_history", [])]
 
         if request.issue_resolved:
             response = llm_client.generate_resolved_troubleshooting_response()
@@ -32,9 +23,8 @@ def build_troubleshooting_node(llm_client, validation_service):
                 message=user_query,
                 retrieved_docs=documents,
                 classification=classification,
+                history=source_history,
             )
-            if not request.request_ticket and response.next_action != TroubleshootingAction.resolved:
-                response = response.model_copy(update={"response_text": _ensure_support_ticket_offer(response.response_text)})
             is_valid, errors = validation_service.validate_troubleshooting_response(response=response, retrieved_docs=documents)
         if not is_valid:
             if request.issue_resolved:
@@ -45,8 +35,6 @@ def build_troubleshooting_node(llm_client, validation_service):
                     retrieved_docs=documents,
                     classification=classification,
                 )
-                if not request.request_ticket and response.next_action != TroubleshootingAction.resolved:
-                    response = response.model_copy(update={"response_text": _ensure_support_ticket_offer(response.response_text)})
 
         if request.request_ticket and response.next_action != TroubleshootingAction.resolved:
             response.next_action = TroubleshootingAction.collect_evidence

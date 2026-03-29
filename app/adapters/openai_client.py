@@ -159,7 +159,9 @@ class OpenAIClient:
         message: str,
         retrieved_docs: list[RetrievedDocument],
         classification: IntentClassification,
+        history: list[ConversationMessage] | None = None,
     ) -> TroubleshootingResponse:
+        history = history or []
         fallback = self._grounded_fallback_response(message, retrieved_docs, classification)
         if not self.client:
             return fallback
@@ -173,6 +175,7 @@ class OpenAIClient:
         else:
             documents_block = "No retrieved Delta KB documents were available for this turn."
         user_prompt = (
+            f"Conversation history (oldest first):\n{self._format_history(history)}\n\n"
             f"User message:\n{message}\n\n"
             f"Classification:\n{classification.model_dump_json()}\n\n"
             f"Retrieved Delta KB documents:\n{documents_block}\n\n"
@@ -218,11 +221,10 @@ class OpenAIClient:
                 "Try the usual checks below:\n\n"
                 "1. Confirm the device is powered and the fault text is still present.\n"
                 "2. Perform a safe restart or reset if the equipment instructions allow it.\n"
-                "3. Note any recent changes, then reply with the exact display text or LED state.\n\n"
+                "3. Note any recent changes that may explain when the issue started.\n\n"
             )
             if classification.error_code:
-                response_text += f"This matches the reported code: `{classification.error_code}`.\n\n"
-            response_text += "If the issue persists, would you like me to help create a support ticket?"
+                response_text += f"This matches the reported code: `{classification.error_code}`."
             return TroubleshootingResponse(
                 response_text=response_text,
                 citations=[],
@@ -243,9 +245,7 @@ class OpenAIClient:
             f"{excerpt}.\n\n"
         )
         if classification.error_code:
-            response_text += f"This matches the reported code: `{classification.error_code}`.\n\n"
-        response_text += "Reply with the exact display message or LED state after this step.\n\n"
-        response_text += "If the issue persists, would you like me to help create a support ticket?"
+            response_text += f"This matches the reported code: `{classification.error_code}`."
         return TroubleshootingResponse(
             response_text=response_text,
             citations=[doc.doc_id for doc in retrieved_docs[:3]],
@@ -350,8 +350,9 @@ class OpenAIClient:
             combined_text,
         )
         model_number = request.device_info.model_number
-        has_domain_context = self._has_domain_context(
-            lowered_message=combined_lowered,
+        needs_clarification = self._needs_clarification_prompt(
+            user_message=message,
+            history=history,
             device_type=device_type,
             model_number=model_number,
             has_error_code=bool(error_match),
@@ -362,7 +363,7 @@ class OpenAIClient:
             intent = IntentType.escalate
         elif any(term in lowered for term in ("how do", "what is", "where can", "manual")) or "?" in message:
             intent = IntentType.general_question
-        elif not has_domain_context and self._is_brief_message(lowered):
+        elif needs_clarification:
             intent = IntentType.general_question
 
         missing_info = []
@@ -370,7 +371,7 @@ class OpenAIClient:
             missing_info.append("model_number")
         if not error_match:
             missing_info.append("error_code")
-        if intent == IntentType.general_question and not has_domain_context:
+        if intent == IntentType.general_question and needs_clarification:
             missing_info.append("issue_or_question_details")
         system_message = None if intent == IntentType.escalate else (
             self._heuristic_system_message(message) if "issue_or_question_details" in missing_info else None
@@ -416,31 +417,23 @@ class OpenAIClient:
         words = re.findall(r"[a-z0-9]+", lowered_message)
         return 0 < len(words) <= 4
 
-    def _has_domain_context(
+    def _needs_clarification_prompt(
         self,
-        lowered_message: str,
+        *,
+        user_message: str,
+        history: list[ConversationMessage],
         device_type: DeviceType,
         model_number: str | None,
         has_error_code: bool,
     ) -> bool:
-        if device_type != DeviceType.unknown or model_number or has_error_code:
+        normalized = re.sub(r"\s+", " ", user_message).strip().lower().rstrip("?.!")
+        if not normalized:
             return True
-        domain_terms = (
-            "inverter",
-            "battery",
-            "pv",
-            "panel",
-            "solar",
-            "monitor",
-            "gateway",
-            "meter",
-            "fault",
-            "alarm",
-            "error",
-            "trip",
-            "shutdown",
-        )
-        return any(term in lowered_message for term in domain_terms)
+        if history or "?" in user_message or device_type != DeviceType.unknown or model_number or has_error_code:
+            return False
+
+        words = re.findall(r"[a-z0-9]+", normalized)
+        return 0 < len(words) <= 2 and len(normalized) <= 10
 
     def _heuristic_system_message(self, user_message: str) -> str:
         snippet = re.sub(r"\s+", " ", user_message).strip()
