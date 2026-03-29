@@ -28,11 +28,12 @@ class OpenAIClientResponseTests(unittest.TestCase):
         self.assertIn("The exact alarm or error text", message)
         self.assertNotIn("technical details for", message)
 
-    def test_grounded_fallback_without_docs_asks_for_minimum_details(self):
+    def test_grounded_fallback_without_docs_answers_directly_and_offers_ticket(self):
         classification = IntentClassification(
             intent=IntentType.troubleshoot,
             device_type=DeviceType.inverter,
             support_scope_status=SupportScopeStatus.unknown,
+            error_code="E031",
         )
 
         response = self.client._grounded_fallback_response(  # noqa: SLF001 - validating helper output directly
@@ -41,11 +42,10 @@ class OpenAIClientResponseTests(unittest.TestCase):
             classification=classification,
         )
 
-        self.assertEqual(response.next_action, TroubleshootingAction.ask_question)
-        self.assertIn("## Let’s narrow this down", response.response_text)
-        self.assertIn("1. The model number", response.response_text)
-        self.assertIn("2. The exact error code or fault text", response.response_text)
-        self.assertIn("Reply with those details", response.response_text)
+        self.assertEqual(response.next_action, TroubleshootingAction.continue_troubleshooting)
+        self.assertIn("## First, check the E031 condition", response.response_text)
+        self.assertIn("1. Confirm the device is powered", response.response_text)
+        self.assertIn("If the issue persists, would you like me to help create a support ticket?", response.response_text)
 
     def test_fallback_evidence_collection_response_keeps_evidence_optional(self):
         response_text = self.client._fallback_evidence_collection_response(  # noqa: SLF001 - validating helper output directly
@@ -85,7 +85,15 @@ class OpenAIClientResponseTests(unittest.TestCase):
         self.assertEqual(response.citations, ["doc-1"])
         self.assertIn("## First, check the E031 condition", response.response_text)
         self.assertIn("1. Check the display, acknowledge the alarm, and run the restart sequence.", response.response_text)
-        self.assertIn("Reply with the exact display message or LED state", response.response_text)
+        self.assertIn("If the issue persists, would you like me to help create a support ticket?", response.response_text)
+
+    def test_resolved_troubleshooting_response_closes_conversation(self):
+        response = self.client.generate_resolved_troubleshooting_response()
+
+        self.assertEqual(response.next_action, TroubleshootingAction.resolved)
+        self.assertEqual(response.citations, [])
+        self.assertIn("Glad to hear the issue is resolved", response.response_text)
+        self.assertNotIn("support ticket", response.response_text.lower())
 
 
 if __name__ == "__main__":

@@ -144,15 +144,35 @@ class FakeLLMClient:
 
     def generate_troubleshooting_response(self, message, retrieved_docs, classification):
         citations = [doc.doc_id for doc in retrieved_docs[:1]]
-        response_text = "Follow the documented restart sequence from the retrieved Delta KB article."
-        if "still the same" in message.lower() and "context:" in message:
+        if not retrieved_docs:
+            response_text = (
+                "Try the usual checks for this issue, starting with a safe restart if the equipment instructions allow it."
+            )
+            if classification.error_code:
+                response_text = (
+                    f"## First, check the {classification.error_code} condition\n\n"
+                    "Try the usual checks for this issue, starting with a safe restart if the equipment instructions allow it."
+                )
+        elif "still the same" in message.lower() and "context:" in message:
             response_text = (
                 "Based on the prior conversation, continue from the documented restart sequence and share the new fault state."
             )
+        else:
+            response_text = "Follow the documented restart sequence from the retrieved Delta KB article."
         return TroubleshootingResponse(
             response_text=response_text,
             citations=citations,
             next_action=TroubleshootingAction.continue_troubleshooting,
+        )
+
+    def generate_resolved_troubleshooting_response(self):
+        return TroubleshootingResponse(
+            response_text=(
+                "## Resolved\n\n"
+                "Glad to hear the issue is resolved. I will close this here. If anything changes, send a new message and I can help again."
+            ),
+            citations=[],
+            next_action=TroubleshootingAction.resolved,
         )
 
     def create_embedding(self, text, dimensions=None):
@@ -178,6 +198,17 @@ class FakeSearchAdapter:
                 score=0.82,
             )
         ]
+
+
+class EmptySearchAdapter:
+    def __init__(self):
+        self.last_query = None
+        self.last_filters = None
+
+    def search(self, query, size=5, filters=None):
+        self.last_query = query
+        self.last_filters = filters or {}
+        return []
 
 
 class FakeTicketAdapter:
@@ -224,6 +255,32 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["next_action"], "continue_troubleshooting")
         self.assertEqual(state["citations"], ["doc-1"])
         self.assertEqual(self.llm_client.classify_intent_calls, 1)
+
+    def test_troubleshooting_without_kb_docs_still_answers_directly(self):
+        dependencies = WorkflowDependencies(
+            llm_client=self.llm_client,
+            retrieval_service=RetrievalService(EmptySearchAdapter()),
+            validation_service=ValidationService(),
+            ticket_service=TicketService(self.ticket_adapter),
+            retrieval_top_k=5,
+        )
+        workflow = build_workflow(dependencies)
+
+        request = ChatMessageRequest(
+            message="My inverter shows E031 after restart",
+            device_info=DeviceInfo(device_type=DeviceType.inverter, model_number="M100A"),
+            evidence_pack=EvidencePack(
+                user_role="customer_owner",
+                ownership_verified=True,
+            ),
+        )
+        state = workflow.invoke({"request": request.model_dump(mode="json")})
+
+        self.assertEqual(state["current_phase"], "troubleshooting")
+        self.assertEqual(state["next_action"], "continue_troubleshooting")
+        self.assertEqual(state["citations"], [])
+        self.assertIn("If the issue persists, would you like me to help create a support ticket?", state["response_text"])
+        self.assertIn("try the usual checks", state["response_text"].lower())
 
     def test_unknown_scope_continues_to_troubleshooting(self):
         request = ChatMessageRequest(
@@ -513,6 +570,20 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "ticket_creation")
         self.assertEqual(state["ticket_response"]["status"], "mock_created")
         self.assertFalse(state["escalation_active"])
+
+    def test_issue_resolved_returns_closing_response(self):
+        request = ChatMessageRequest(
+            message="The issue is resolved now",
+            issue_resolved=True,
+            device_info=DeviceInfo(device_type=DeviceType.inverter, model_number="M100A"),
+        )
+        state = self.workflow.invoke({"request": request.model_dump(mode="json")})
+
+        self.assertEqual(state["current_phase"], "troubleshooting")
+        self.assertEqual(state["next_action"], "resolved")
+        self.assertEqual(derive_conversation_state(state), ConversationState.resolved)
+        self.assertIn("Glad to hear the issue is resolved", state["response_text"])
+        self.assertNotIn("support ticket", state["response_text"].lower())
 
     def test_ticket_payload_includes_summarized_troubleshooting_history(self):
         request = ChatMessageRequest(

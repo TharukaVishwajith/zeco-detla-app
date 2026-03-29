@@ -161,14 +161,17 @@ class OpenAIClient:
         classification: IntentClassification,
     ) -> TroubleshootingResponse:
         fallback = self._grounded_fallback_response(message, retrieved_docs, classification)
-        if not self.client or not retrieved_docs:
+        if not self.client:
             return fallback
 
         prompt = self._load_prompt("troubleshooting_prompt.txt")
-        documents_block = "\n\n".join(
-            f"Doc ID: {doc.doc_id}\nTitle: {doc.title}\nSection: {doc.section_title}\nContent: {doc.content}"
-            for doc in retrieved_docs
-        )
+        if retrieved_docs:
+            documents_block = "\n\n".join(
+                f"Doc ID: {doc.doc_id}\nTitle: {doc.title}\nSection: {doc.section_title}\nContent: {doc.content}"
+                for doc in retrieved_docs
+            )
+        else:
+            documents_block = "No retrieved Delta KB documents were available for this turn."
         user_prompt = (
             f"User message:\n{message}\n\n"
             f"Classification:\n{classification.model_dump_json()}\n\n"
@@ -189,6 +192,17 @@ class OpenAIClient:
             logger.warning("OpenAI troubleshooting generation failed, using fallback: %s", exc)
             return fallback
 
+    def generate_resolved_troubleshooting_response(self) -> TroubleshootingResponse:
+        return TroubleshootingResponse(
+            response_text=(
+                "## Resolved\n\n"
+                "Glad to hear the issue is resolved. I will close this here. "
+                "If anything changes, send a new message and I can help again."
+            ),
+            citations=[],
+            next_action=TroubleshootingAction.resolved,
+        )
+
     def _grounded_fallback_response(
         self,
         message: str,
@@ -196,19 +210,23 @@ class OpenAIClient:
         classification: IntentClassification,
     ) -> TroubleshootingResponse:
         if not retrieved_docs:
+            opening = "## Try these next steps"
+            if classification.error_code:
+                opening = f"## First, check the {classification.error_code} condition"
             response_text = (
-                "## Let’s narrow this down\n\n"
-                "I do not have enough detail yet to match the issue to a Delta support article.\n\n"
-                "Please send:\n"
-                "1. The model number\n"
-                "2. The exact error code or fault text\n"
-                "3. Any recent change before this started\n\n"
-                "Reply with those details and I’ll give you the next step."
+                f"{opening}\n\n"
+                "Try the usual checks below:\n\n"
+                "1. Confirm the device is powered and the fault text is still present.\n"
+                "2. Perform a safe restart or reset if the equipment instructions allow it.\n"
+                "3. Note any recent changes, then reply with the exact display text or LED state.\n\n"
             )
+            if classification.error_code:
+                response_text += f"This matches the reported code: `{classification.error_code}`.\n\n"
+            response_text += "If the issue persists, would you like me to help create a support ticket?"
             return TroubleshootingResponse(
                 response_text=response_text,
                 citations=[],
-                next_action=TroubleshootingAction.ask_question,
+                next_action=TroubleshootingAction.continue_troubleshooting,
             )
 
         primary_doc = retrieved_docs[0]
@@ -226,7 +244,8 @@ class OpenAIClient:
         )
         if classification.error_code:
             response_text += f"This matches the reported code: `{classification.error_code}`.\n\n"
-        response_text += "Reply with the exact display message or LED state after this step."
+        response_text += "Reply with the exact display message or LED state after this step.\n\n"
+        response_text += "If the issue persists, would you like me to help create a support ticket?"
         return TroubleshootingResponse(
             response_text=response_text,
             citations=[doc.doc_id for doc in retrieved_docs[:3]],
