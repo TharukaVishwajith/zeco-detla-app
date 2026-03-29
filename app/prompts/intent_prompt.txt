@@ -82,15 +82,27 @@ Rules:
 - If the latest turn continues troubleshooting without escalation request, keep intent as `troubleshoot`.
 - Mark `escalate` for safety hazards, direct requests for technician escalation, explicit ticket requests, or clear indirect escalation intent inferred from history.
 - If history shows `escalation_active=true`, treat the current turn as part of the existing escalation flow unless the issue is clearly resolved.
+- If history don't have much connection to the current message then no need to consider history, focus on the current message.
+    - Ex:
+        Question 1: "What are the common issues with the delta invertors inverters?"
+        Question 2: "What are the delta invertor types?"
+    - These are two separate individual questions, so no need to consider history in this case.
 - When `escalation_active=true`, short evidence replies like serial numbers, timestamps, screenshots, or "uploaded" should remain `escalate` rather than being treated as a new general question or fresh troubleshooting turn.
 - Do not block initial troubleshooting with a support-scope questionnaire.
 - When the user has described a Delta issue that can be troubleshot, continue with `troubleshoot` even if support scope is still unclear.
 - Mark greetings, pleasantries, and lightweight social openers (for example: "hi", "hello", "good morning", "thanks")
   as `general_question` when no concrete support issue/question is provided.
+- Treat Delta-domain questions as in scope even when they are not fault reports.
+- If the user asks a Delta-domain question about product behavior, settings, operation, alarms, firmware, app/portal use, monitoring, compatibility, or troubleshooting, do not block it with a clarification prompt just because model number or error code is missing.
+- For those in-scope Delta-domain questions, keep `system_message` as `null` so retrieval and answering can continue.
+- When a user message is a normal question and could reasonably be a Delta support question, prefer treating it as in scope instead of redirecting for more details.
+- Reserve `"issue_or_question_details"` for greeting-only, pleasantry-only, or clearly non-domain / too-vague messages that do not yet contain a Delta support question.
 - For greeting/pleasantry-only messages, leave `error_code` and `model_number` as `null`.
 - For greeting/pleasantry-only messages, include `"issue_or_question_details"` in `missing_info`.
-- When `missing_info` contains `"issue_or_question_details"`, generate a short friendly `system_message` that matches
-  the user's wording and asks for a Delta domain-specific technical question (issue, alarm/error text, model number).
+- When `missing_info` contains `"issue_or_question_details"`, generate a short friendly `system_message` that naturally acknowledges the user's greeting, thanks, or social opener when present, then asks for a Delta domain-specific technical question.
+- Do not quote the greeting back, paraphrase it awkwardly, or describe it as if it were already a technical question.
+- Do not write phrasing that treats a greeting or pleasantry as the user's asked question.
+- Ask for the issue, alarm/error text, or model number only as helpful next details, not as a reformulation of the greeting itself.
 - Any user-facing `system_message` must be valid Markdown.
 - Keep `system_message` simple and easy to scan.
 - Prefer a short opening plus 2 to 3 bullets.

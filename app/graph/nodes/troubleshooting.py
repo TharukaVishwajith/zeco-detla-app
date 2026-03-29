@@ -1,9 +1,9 @@
 from app.models.conversation import (
     ChatMessageRequest,
+    ConversationMessage,
     IntentClassification,
     RetrievedDocument,
     TroubleshootingAction,
-    TroubleshootingResponse,
 )
 
 
@@ -13,39 +13,28 @@ def build_troubleshooting_node(llm_client, validation_service):
         classification = IntentClassification.model_validate(state["classification"])
         user_query = state.get("user_query") or request.message
         documents = [RetrievedDocument.model_validate(item) for item in state.get("retrieved_docs", [])]
-        skip_validation = False
+        source_history = [ConversationMessage.model_validate(item) for item in state.get("source_history", [])]
 
         if request.issue_resolved:
-            response = TroubleshootingResponse(
-                response_text="Issue marked as resolved. No ticket will be created.",
-                citations=[],
-                next_action=TroubleshootingAction.resolved,
-            )
+            response = llm_client.generate_resolved_troubleshooting_response()
+            is_valid, errors = True, []
         else:
             response = llm_client.generate_troubleshooting_response(
                 message=user_query,
                 retrieved_docs=documents,
                 classification=classification,
+                history=source_history,
             )
-
-        if skip_validation:
-            is_valid, errors = True, []
-        else:
             is_valid, errors = validation_service.validate_troubleshooting_response(response=response, retrieved_docs=documents)
         if not is_valid:
-            fallback_text = (
-                "## I need one more detail\n\n"
-                "I could not give a safe grounded answer from the Delta support content yet.\n\n"
-                "Please reply with:\n"
-                "1. The exact model number\n"
-                "2. The exact fault text shown on screen\n\n"
-                "If you already have both, you can also ask me to escalate it."
-            )
-            response = TroubleshootingResponse(
-                response_text=fallback_text,
-                citations=[],
-                next_action=TroubleshootingAction.ask_question,
-            )
+            if request.issue_resolved:
+                response = llm_client.generate_resolved_troubleshooting_response()
+            else:
+                response = llm_client._grounded_fallback_response(  # noqa: SLF001 - best-effort fallback for invalid output
+                    message=user_query,
+                    retrieved_docs=documents,
+                    classification=classification,
+                )
 
         if request.request_ticket and response.next_action != TroubleshootingAction.resolved:
             response.next_action = TroubleshootingAction.collect_evidence
