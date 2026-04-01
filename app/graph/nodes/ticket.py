@@ -1,6 +1,12 @@
 import re
 
-from app.models.conversation import ChatMessageRequest, ConversationMessage, ConversationRole, TroubleshootingAction
+from app.models.conversation import (
+    ChatMessageRequest,
+    ConversationMessage,
+    ConversationRole,
+    IntentClassification,
+    TroubleshootingAction,
+)
 
 
 TROUBLESHOOTING_HISTORY_ACTIONS = {
@@ -10,9 +16,11 @@ TROUBLESHOOTING_HISTORY_ACTIONS = {
 }
 
 
-def build_ticket_creation_node(ticket_service):
+def build_ticket_creation_node(ticket_service, llm_client):
     def ticket_creation_node(state: dict) -> dict:
         request = ChatMessageRequest.model_validate(state["request"])
+        classification = IntentClassification.model_validate(state["classification"])
+        source_history = [ConversationMessage.model_validate(item) for item in state.get("source_history", [])]
         troubleshooting_steps = _collect_troubleshooting_notes(state)
         escalation_reason = state.get("safety_assessment", {}).get("reason")
         ticket_response = ticket_service.create_from_graph(
@@ -24,7 +32,14 @@ def build_ticket_creation_node(ticket_service):
             unsupported_reason=state.get("unsupported_reason"),
             missing_artifacts=state.get("missing_artifacts", []),
         )
-        response_text = f"Support ticket {ticket_response.ticket_id} created successfully."
+        response_text = _build_ticket_creation_response(
+            state=state,
+            ticket_id=ticket_response.ticket_id,
+            llm_client=llm_client,
+            request=request,
+            classification=classification,
+            history=source_history,
+        )
         return {
             "ticket_response": ticket_response.model_dump(mode="json"),
             "response_text": response_text,
@@ -47,9 +62,37 @@ def _collect_troubleshooting_notes(state: dict) -> list[str]:
         _append_note(notes, seen, message.content)
 
     troubleshooting_response = state.get("troubleshooting_response")
-    if troubleshooting_response:
+    if troubleshooting_response and troubleshooting_response.get("next_action") in {
+        action.value for action in TROUBLESHOOTING_HISTORY_ACTIONS
+    }:
         _append_note(notes, seen, troubleshooting_response.get("response_text"))
     return notes
+
+
+def _build_ticket_creation_response(
+    *,
+    state: dict,
+    ticket_id: str,
+    llm_client,
+    request: ChatMessageRequest,
+    classification: IntentClassification,
+    history: list[ConversationMessage],
+) -> str:
+    intro_text = (state.get("ticket_response_intro_text") or "").strip()
+    if not intro_text:
+        intro_text = llm_client.generate_ticket_creation_intro(
+            request=request,
+            classification=classification,
+            history=history,
+            troubleshooting_rounds=state.get("troubleshooting_rounds", 0),
+            support_scope_status=state.get("support_scope_status"),
+            escalate_immediately=bool(state.get("safety_assessment", {}).get("escalate_immediately")),
+            force_ticket_creation=bool(state.get("force_ticket_creation")),
+        ).strip()
+    confirmation = f"Support ticket `{ticket_id}` has been created successfully."
+    if not intro_text:
+        return confirmation
+    return f"{intro_text}\n\n{confirmation}"
 
 
 def _append_note(notes: list[str], seen: set[str], content: str | None) -> None:

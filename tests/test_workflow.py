@@ -183,6 +183,41 @@ class FakeLLMClient:
             next_action=TroubleshootingAction.resolved,
         )
 
+    def generate_ticket_creation_intro(
+        self,
+        *,
+        request,
+        classification,
+        history=None,
+        troubleshooting_rounds=0,
+        support_scope_status=None,
+        escalate_immediately=False,
+        force_ticket_creation=False,
+    ):
+        if escalate_immediately:
+            return (
+                "## Immediate Safety Escalation\n\n"
+                "For safety, I need to escalate this issue right away and create a support ticket for you.\n\n"
+                "Please do not continue operating the equipment while the case is being reviewed."
+            )
+        if force_ticket_creation or troubleshooting_rounds >= 5:
+            return (
+                "## Support Escalation\n\n"
+                "I'm sorry the troubleshooting steps didn't resolve the issue.\n\n"
+                "Since the problem is still present, I will escalate this to our customer service team and create a support ticket for you now."
+            )
+        if request.request_ticket or classification.intent == IntentType.escalate:
+            return (
+                "## Support Escalation\n\n"
+                "I understand you want this escalated, and I will create a support ticket for you now.\n\n"
+                "Our customer service team will review the case and provide further assistance."
+            )
+        return (
+            "## Support Escalation\n\n"
+            "I will create a support ticket for you now.\n\n"
+            "Our customer service team will review the case and provide further assistance."
+        )
+
     def create_embedding(self, text, dimensions=None):
         return None
 
@@ -459,6 +494,67 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state.get("history"), [])
         self.assertIn("My inverter shows E031 after restart", self.search_adapter.last_query)
         self.assertEqual(state["merged_evidence_pack"]["serial_number"], "SN12345")
+
+    def test_fifth_completed_troubleshooting_round_auto_creates_ticket(self):
+        request = ChatMessageRequest(
+            message="It is still not working after all of that.",
+            device_info=DeviceInfo(device_type=DeviceType.inverter, model_number="M100A"),
+            evidence_pack=EvidencePack(
+                user_role="customer_owner",
+                ownership_verified=True,
+                inverter_model="M100A",
+                serial_number="SN12345",
+                firmware_version="1.0.4",
+                error_code="E031",
+                timestamp="2026-03-07T09:30:00Z",
+                backup_loads_present=False,
+                recent_changes="No recent changes",
+            ),
+        )
+        history: list[ConversationMessage] = []
+        for round_number in range(1, 6):
+            history.extend(
+                [
+                    ConversationMessage(
+                        role=ConversationRole.user,
+                        content=f"Round {round_number}: the issue is still present.",
+                    ),
+                    ConversationMessage(
+                        role=ConversationRole.assistant,
+                        content=f"Try troubleshooting step {round_number} and tell me what changes.",
+                        next_action=TroubleshootingAction.continue_troubleshooting,
+                        escalation_active=False,
+                        evidence_snapshot=EvidencePack(
+                            user_role="customer_owner",
+                            ownership_verified=True,
+                            inverter_model="M100A",
+                            serial_number="SN12345",
+                            firmware_version="1.0.4",
+                            error_code="E031",
+                            timestamp="2026-03-07T09:30:00Z",
+                            backup_loads_present=False,
+                            recent_changes="No recent changes",
+                        ),
+                    ),
+                ]
+            )
+
+        state = self.workflow.invoke(
+            {
+                "request": request.model_dump(mode="json"),
+                "history": [message.model_dump(mode="json") for message in history],
+            }
+        )
+
+        self.assertEqual(state["current_phase"], "ticket_creation")
+        self.assertEqual(state["troubleshooting_rounds"], 5)
+        self.assertEqual(state["ticket_response"]["status"], "mock_created")
+        self.assertIn("troubleshooting steps didn't resolve the issue", state["response_text"])
+        self.assertIn("Support ticket `MOCK-12345678` has been created successfully.", state["response_text"])
+        self.assertNotIn(
+            "troubleshooting steps didn't resolve the issue",
+            self.ticket_adapter.last_payload.escalation_summary,
+        )
 
     def test_merge_evidence_preserves_explicit_additional_info(self):
         merged = merge_evidence_from_conversation(

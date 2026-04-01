@@ -112,6 +112,28 @@ class OpenAIClientResponseTests(unittest.TestCase):
         self.assertIn("Glad to hear the issue is resolved", response.response_text)
         self.assertNotIn("support ticket", response.response_text.lower())
 
+    def test_fallback_ticket_creation_intro_mentions_escalation_and_ticket(self):
+        request = ChatMessageRequest(message="The inverter still fails after several attempts")
+        classification = IntentClassification(
+            intent=IntentType.troubleshoot,
+            device_type=DeviceType.inverter,
+            support_scope_status=SupportScopeStatus.supported,
+        )
+
+        response_text = self.client.generate_ticket_creation_intro(
+            request=request,
+            classification=classification,
+            history=[],
+            troubleshooting_rounds=5,
+            support_scope_status=SupportScopeStatus.supported.value,
+            escalate_immediately=False,
+            force_ticket_creation=True,
+        )
+
+        self.assertIn("## Support Escalation", response_text)
+        self.assertIn("troubleshooting steps", response_text.lower())
+        self.assertIn("support ticket", response_text.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

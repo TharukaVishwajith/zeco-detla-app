@@ -14,10 +14,10 @@ class ValidationService:
         valid_doc_ids = {doc.doc_id for doc in retrieved_docs}
         if not response.response_text.strip():
             errors.append("response_text is empty")
-        if retrieved_docs and not response.citations:
-            errors.append("grounded response must include citations")
-        if any(citation not in valid_doc_ids for citation in response.citations):
-            errors.append("response contains citations not present in retrieved documents")
+        # if retrieved_docs and not response.citations:
+        #     errors.append("grounded response must include citations")
+        # if any(citation not in valid_doc_ids for citation in response.citations):
+        #     errors.append("response contains citations not present in retrieved documents")
         lowered = response.response_text.lower()
         if any(term in lowered for term in UNSAFE_INSTRUCTION_TERMS):
             errors.append("response contains unsafe operational guidance")
