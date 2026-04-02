@@ -14,6 +14,8 @@ class ValidationService:
         valid_doc_ids = {doc.doc_id for doc in retrieved_docs}
         if not response.response_text.strip():
             errors.append("response_text is empty")
+        if not isinstance(response.counts_as_troubleshooting_round, bool):
+            errors.append("counts_as_troubleshooting_round must be a boolean")
         # if retrieved_docs and not response.citations:
         #     errors.append("grounded response must include citations")
         # if any(citation not in valid_doc_ids for citation in response.citations):
@@ -22,4 +24,3 @@ class ValidationService:
         if any(term in lowered for term in UNSAFE_INSTRUCTION_TERMS):
             errors.append("response contains unsafe operational guidance")
         return (len(errors) == 0, errors)
-

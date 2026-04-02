@@ -61,6 +61,8 @@ def chat_message(
         next_action=response.next_action.value,
         system_message=response.system_message,
         escalation_active=state.get("escalation_active"),
+        counts_as_troubleshooting_round=state.get("counts_as_troubleshooting_round"),
+        troubleshooting_rounds=state.get("troubleshooting_rounds"),
         evidence_snapshot=state.get("merged_evidence_pack"),
         conversation_state=response.conversation_state,
     )

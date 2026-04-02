@@ -171,6 +171,7 @@ class FakeLLMClient:
             response_text=response_text,
             citations=citations,
             next_action=TroubleshootingAction.continue_troubleshooting,
+            counts_as_troubleshooting_round=True,
         )
 
     def generate_resolved_troubleshooting_response(self):
@@ -181,6 +182,7 @@ class FakeLLMClient:
             ),
             citations=[],
             next_action=TroubleshootingAction.resolved,
+            counts_as_troubleshooting_round=False,
         )
 
     def generate_ticket_creation_intro(
@@ -524,6 +526,7 @@ class WorkflowTests(unittest.TestCase):
                         content=f"Try troubleshooting step {round_number} and tell me what changes.",
                         next_action=TroubleshootingAction.continue_troubleshooting,
                         escalation_active=False,
+                        counts_as_troubleshooting_round=True,
                         evidence_snapshot=EvidencePack(
                             user_role="customer_owner",
                             ownership_verified=True,
@@ -718,6 +721,7 @@ class WorkflowTests(unittest.TestCase):
                 ),
                 next_action=TroubleshootingAction.continue_troubleshooting,
                 escalation_active=False,
+                counts_as_troubleshooting_round=True,
                 evidence_snapshot=EvidencePack(
                     user_role="customer_owner",
                     ownership_verified=True,
@@ -782,6 +786,173 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "ticket_creation")
         self.assertGreaterEqual(state["evidence_completion_ratio"], 0.7)
         self.assertEqual(state["ticket_response"]["status"], "mock_created")
+
+    def test_non_counted_reply_does_not_increment_troubleshooting_rounds(self):
+        class NonCountingLLMClient(FakeLLMClient):
+            def generate_troubleshooting_response(self, message, retrieved_docs, classification, history=None):
+                return TroubleshootingResponse(
+                    response_text="## Clarify one detail\n\nPlease confirm the exact wording on the display.",
+                    citations=[],
+                    next_action=TroubleshootingAction.ask_question,
+                    counts_as_troubleshooting_round=False,
+                )
+
+        workflow = build_workflow(
+            WorkflowDependencies(
+                llm_client=NonCountingLLMClient(),
+                retrieval_service=RetrievalService(self.search_adapter),
+                validation_service=ValidationService(),
+                ticket_service=TicketService(self.ticket_adapter),
+                retrieval_top_k=5,
+            )
+        )
+
+        history = [
+            ConversationMessage(role=ConversationRole.user, content="Round 1: still the same."),
+            ConversationMessage(
+                role=ConversationRole.assistant,
+                content="Try step 1 and tell me what happens.",
+                next_action=TroubleshootingAction.continue_troubleshooting,
+                counts_as_troubleshooting_round=True,
+            ),
+            ConversationMessage(role=ConversationRole.user, content="Round 2: still the same."),
+            ConversationMessage(
+                role=ConversationRole.assistant,
+                content="Try step 2 and tell me what happens.",
+                next_action=TroubleshootingAction.continue_troubleshooting,
+                counts_as_troubleshooting_round=True,
+            ),
+            ConversationMessage(role=ConversationRole.user, content="Round 3: still the same."),
+            ConversationMessage(
+                role=ConversationRole.assistant,
+                content="Try step 3 and tell me what happens.",
+                next_action=TroubleshootingAction.continue_troubleshooting,
+                counts_as_troubleshooting_round=True,
+            ),
+            ConversationMessage(role=ConversationRole.user, content="Round 4: still the same."),
+            ConversationMessage(
+                role=ConversationRole.assistant,
+                content="Try step 4 and tell me what happens.",
+                next_action=TroubleshootingAction.continue_troubleshooting,
+                counts_as_troubleshooting_round=True,
+            ),
+        ]
+
+        state = workflow.invoke(
+            {
+                "request": ChatMessageRequest(
+                    message="Still not resolved.",
+                    device_info=DeviceInfo(device_type=DeviceType.inverter, model_number="M100A"),
+                ).model_dump(mode="json"),
+                "history": [message.model_dump(mode="json") for message in history],
+            }
+        )
+
+        self.assertEqual(state["current_phase"], "troubleshooting")
+        self.assertEqual(state["next_action"], "ask_question")
+        self.assertEqual(state["troubleshooting_rounds"], 4)
+        self.assertFalse(state["counts_as_troubleshooting_round"])
+
+    def test_actionable_numbered_steps_override_false_round_flag(self):
+        class MisflaggedLLMClient(FakeLLMClient):
+            def generate_troubleshooting_response(self, message, retrieved_docs, classification, history=None):
+                return TroubleshootingResponse(
+                    response_text=(
+                        "## Try this next\n\n"
+                        "1. Check the display for the exact fault text.\n"
+                        "2. Restart the inverter using the documented sequence.\n\n"
+                        "Reply with the exact display text after these steps."
+                    ),
+                    citations=["doc-1"],
+                    next_action=TroubleshootingAction.continue_troubleshooting,
+                    counts_as_troubleshooting_round=False,
+                )
+
+        workflow = build_workflow(
+            WorkflowDependencies(
+                llm_client=MisflaggedLLMClient(),
+                retrieval_service=RetrievalService(self.search_adapter),
+                validation_service=ValidationService(),
+                ticket_service=TicketService(self.ticket_adapter),
+                retrieval_top_k=5,
+            )
+        )
+
+        state = workflow.invoke(
+            {
+                "request": ChatMessageRequest(
+                    message="My inverter still shows E031.",
+                    device_info=DeviceInfo(device_type=DeviceType.inverter, model_number="M100A"),
+                ).model_dump(mode="json"),
+            }
+        )
+
+        self.assertEqual(state["current_phase"], "troubleshooting")
+        self.assertEqual(state["next_action"], "continue_troubleshooting")
+        self.assertEqual(state["troubleshooting_rounds"], 1)
+        self.assertTrue(state["counts_as_troubleshooting_round"])
+
+    def test_non_actionable_continue_reply_override_true_round_flag(self):
+        class MisflaggedLLMClient(FakeLLMClient):
+            def generate_troubleshooting_response(self, message, retrieved_docs, classification, history=None):
+                return TroubleshootingResponse(
+                    response_text="## Clarify one detail\n\nPlease confirm the exact wording shown on the display.",
+                    citations=[],
+                    next_action=TroubleshootingAction.continue_troubleshooting,
+                    counts_as_troubleshooting_round=True,
+                )
+
+        workflow = build_workflow(
+            WorkflowDependencies(
+                llm_client=MisflaggedLLMClient(),
+                retrieval_service=RetrievalService(self.search_adapter),
+                validation_service=ValidationService(),
+                ticket_service=TicketService(self.ticket_adapter),
+                retrieval_top_k=5,
+            )
+        )
+
+        state = workflow.invoke(
+            {
+                "request": ChatMessageRequest(
+                    message="My inverter still shows E031.",
+                    device_info=DeviceInfo(device_type=DeviceType.inverter, model_number="M100A"),
+                ).model_dump(mode="json"),
+            }
+        )
+
+        self.assertEqual(state["current_phase"], "troubleshooting")
+        self.assertEqual(state["next_action"], "continue_troubleshooting")
+        self.assertEqual(state["troubleshooting_rounds"], 0)
+        self.assertFalse(state["counts_as_troubleshooting_round"])
+
+    def test_latest_persisted_round_count_prevents_mid_conversation_reset(self):
+        history = [
+            ConversationMessage(
+                role=ConversationRole.user,
+                content="Old troubleshooting context that already fell outside the visible window.",
+            ),
+            ConversationMessage(
+                role=ConversationRole.assistant,
+                content="Try step 5 and tell me what happens.",
+                next_action=TroubleshootingAction.continue_troubleshooting,
+                counts_as_troubleshooting_round=True,
+                troubleshooting_rounds=5,
+            ),
+        ]
+
+        state = self.workflow.invoke(
+            {
+                "request": ChatMessageRequest(
+                    message="Still not resolved.",
+                    device_info=DeviceInfo(device_type=DeviceType.inverter, model_number="M100A"),
+                ).model_dump(mode="json"),
+                "history": [message.model_dump(mode="json") for message in history],
+            }
+        )
+
+        self.assertEqual(state["current_phase"], "ticket_creation")
+        self.assertEqual(state["troubleshooting_rounds"], 5)
 
 
 class ConversationStateMappingTests(unittest.TestCase):

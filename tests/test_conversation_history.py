@@ -58,6 +58,7 @@ class FakeWorkflow:
                 "system_message": "Please share your Delta issue or model number.",
                 "citations": [],
                 "next_action": TroubleshootingAction.ask_question.value,
+                "counts_as_troubleshooting_round": False,
             }
 
         prior_assistant = history[-1]["content"] if history else "none"
@@ -76,6 +77,7 @@ class FakeWorkflow:
             "response_text": f"history={len(history)} prior={prior_assistant}",
             "citations": ["doc-1"],
             "next_action": TroubleshootingAction.continue_troubleshooting.value,
+            "counts_as_troubleshooting_round": True,
         }
 
 
@@ -98,6 +100,9 @@ class ConversationHistoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([message.role for message in stored_messages], [ConversationRole.user, ConversationRole.assistant])
         self.assertEqual(stored_messages[0].content, "My inverter shows E031")
         self.assertEqual(stored_messages[1].content, response.response_text)
+        self.assertTrue(stored_messages[1].counts_as_troubleshooting_round)
+        self.assertIsNone(stored_messages[0].troubleshooting_rounds)
+        self.assertEqual(stored_messages[1].troubleshooting_rounds, 1)
         self.assertEqual(response.conversation_state, ConversationState.troubleshooting)
         self.assertEqual(stored_messages[1].conversation_state, ConversationState.troubleshooting)
 
@@ -157,6 +162,7 @@ class ConversationHistoryRouteTests(unittest.IsolatedAsyncioTestCase):
                     "citations": [],
                     "next_action": TroubleshootingAction.collect_evidence.value,
                     "escalation_active": True,
+                    "counts_as_troubleshooting_round": False,
                 }
 
         response = await chat_message(
@@ -167,6 +173,7 @@ class ConversationHistoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         stored_messages = self.repository.load_messages(response.request_id)
         self.assertTrue(stored_messages[1].escalation_active)
+        self.assertFalse(stored_messages[1].counts_as_troubleshooting_round)
         self.assertEqual(response.conversation_state, ConversationState.awaiting_evidence)
         self.assertEqual(stored_messages[1].conversation_state, ConversationState.awaiting_evidence)
 
@@ -209,11 +216,15 @@ class DynamoConversationRepositoryTests(unittest.TestCase):
                 content="Please provide the serial number.",
                 conversation_state=ConversationState.awaiting_evidence,
                 escalation_active=True,
+                counts_as_troubleshooting_round=False,
+                troubleshooting_rounds=5,
             ),
         )
 
         restored = repository._deserialize_message(item)  # noqa: SLF001 - validating item fields directly
         self.assertTrue(restored.escalation_active)
+        self.assertFalse(restored.counts_as_troubleshooting_round)
+        self.assertEqual(restored.troubleshooting_rounds, 5)
         self.assertEqual(restored.conversation_state, ConversationState.awaiting_evidence)
 
 

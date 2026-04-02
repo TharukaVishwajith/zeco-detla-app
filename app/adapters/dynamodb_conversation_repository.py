@@ -130,6 +130,10 @@ class DynamoConversationRepository:
             item["unsupported_reason"] = message.unsupported_reason.value
         if message.escalation_active is not None:
             item["escalation_active"] = message.escalation_active
+        if message.counts_as_troubleshooting_round is not None:
+            item["counts_as_troubleshooting_round"] = message.counts_as_troubleshooting_round
+        if message.troubleshooting_rounds is not None:
+            item["troubleshooting_rounds"] = message.troubleshooting_rounds
         if message.evidence_snapshot:
             item["evidence_snapshot"] = message.evidence_snapshot.model_dump(exclude_none=True)
         return item
@@ -150,6 +154,8 @@ class DynamoConversationRepository:
             "support_scope_status": item.get("support_scope_status"),
             "unsupported_reason": item.get("unsupported_reason"),
             "escalation_active": item.get("escalation_active"),
+            "counts_as_troubleshooting_round": item.get("counts_as_troubleshooting_round"),
+            "troubleshooting_rounds": item.get("troubleshooting_rounds"),
             "evidence_snapshot": item.get("evidence_snapshot"),
         }
         return ConversationMessage.model_validate(payload)

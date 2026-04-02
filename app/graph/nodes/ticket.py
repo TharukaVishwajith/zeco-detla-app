@@ -5,15 +5,7 @@ from app.models.conversation import (
     ConversationMessage,
     ConversationRole,
     IntentClassification,
-    TroubleshootingAction,
 )
-
-
-TROUBLESHOOTING_HISTORY_ACTIONS = {
-    TroubleshootingAction.ask_question,
-    TroubleshootingAction.continue_troubleshooting,
-    TroubleshootingAction.resolved,
-}
 
 
 def build_ticket_creation_node(ticket_service, llm_client):
@@ -57,14 +49,12 @@ def _collect_troubleshooting_notes(state: dict) -> list[str]:
 
     history = [ConversationMessage.model_validate(item) for item in state.get("source_history", [])]
     for message in history:
-        if message.role != ConversationRole.assistant or message.next_action not in TROUBLESHOOTING_HISTORY_ACTIONS:
+        if message.role != ConversationRole.assistant or message.counts_as_troubleshooting_round is not True:
             continue
         _append_note(notes, seen, message.content)
 
-    troubleshooting_response = state.get("troubleshooting_response")
-    if troubleshooting_response and troubleshooting_response.get("next_action") in {
-        action.value for action in TROUBLESHOOTING_HISTORY_ACTIONS
-    }:
+    troubleshooting_response = state.get("troubleshooting_response") or {}
+    if troubleshooting_response.get("counts_as_troubleshooting_round") is True:
         _append_note(notes, seen, troubleshooting_response.get("response_text"))
     return notes
 

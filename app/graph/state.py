@@ -29,6 +29,7 @@ class SupportGraphState(TypedDict, total=False):
     escalation_active: bool
     previous_escalation_active: bool
     troubleshooting_rounds: int
+    counts_as_troubleshooting_round: bool
     force_ticket_creation: bool
     ticket_response_intro_text: str
     ticket_ready: bool

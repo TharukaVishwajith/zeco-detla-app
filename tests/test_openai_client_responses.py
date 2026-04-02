@@ -60,6 +60,7 @@ class OpenAIClientResponseTests(unittest.TestCase):
         )
 
         self.assertEqual(response.next_action, TroubleshootingAction.continue_troubleshooting)
+        self.assertTrue(response.counts_as_troubleshooting_round)
         self.assertIn("## First, check the E031 condition", response.response_text)
         self.assertIn("1. Confirm the device is powered", response.response_text)
         self.assertNotIn("Reply with the exact display text or LED state after these checks.", response.response_text)
@@ -100,6 +101,7 @@ class OpenAIClientResponseTests(unittest.TestCase):
 
         self.assertEqual(response.next_action, TroubleshootingAction.continue_troubleshooting)
         self.assertEqual(response.citations, ["doc-1"])
+        self.assertTrue(response.counts_as_troubleshooting_round)
         self.assertIn("## First, check the E031 condition", response.response_text)
         self.assertIn("1. Check the display, acknowledge the alarm, and run the restart sequence.", response.response_text)
         self.assertNotIn("Reply with the exact display message or LED state after this step.", response.response_text)
@@ -109,6 +111,7 @@ class OpenAIClientResponseTests(unittest.TestCase):
 
         self.assertEqual(response.next_action, TroubleshootingAction.resolved)
         self.assertEqual(response.citations, [])
+        self.assertFalse(response.counts_as_troubleshooting_round)
         self.assertIn("Glad to hear the issue is resolved", response.response_text)
         self.assertNotIn("support ticket", response.response_text.lower())
 

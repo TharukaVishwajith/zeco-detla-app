@@ -204,6 +204,7 @@ class OpenAIClient:
             ),
             citations=[],
             next_action=TroubleshootingAction.resolved,
+            counts_as_troubleshooting_round=False,
         )
 
     def generate_ticket_creation_intro(
@@ -285,6 +286,7 @@ class OpenAIClient:
                 response_text=response_text,
                 citations=[],
                 next_action=TroubleshootingAction.continue_troubleshooting,
+                counts_as_troubleshooting_round=True,
             )
 
         primary_doc = retrieved_docs[0]
@@ -306,6 +308,7 @@ class OpenAIClient:
             response_text=response_text,
             citations=[doc.doc_id for doc in retrieved_docs[:3]],
             next_action=TroubleshootingAction.continue_troubleshooting,
+            counts_as_troubleshooting_round=True,
         )
 
     def _fallback_ticket_creation_intro(
@@ -602,6 +605,11 @@ class OpenAIClient:
                 metadata.append(f"next_action={message.next_action.value}")
             if message.escalation_active is not None:
                 metadata.append(f"escalation_active={'true' if message.escalation_active else 'false'}")
+            if message.counts_as_troubleshooting_round is not None:
+                metadata.append(
+                    "counts_as_troubleshooting_round="
+                    f"{'true' if message.counts_as_troubleshooting_round else 'false'}"
+                )
             label = message.role.value.upper()
             if metadata:
                 label = f"{label} [{' '.join(metadata)}]"
