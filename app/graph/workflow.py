@@ -30,7 +30,7 @@ def build_workflow(dependencies: WorkflowDependencies):
         "troubleshooting",
         build_troubleshooting_node(dependencies.llm_client, dependencies.validation_service),
     )
-    graph.add_node("evidence_collection", build_evidence_collection_node())
+    graph.add_node("evidence_collection", build_evidence_collection_node(dependencies.llm_client))
     graph.add_node("ticket_creation", build_ticket_creation_node(dependencies.ticket_service, dependencies.llm_client))
 
     graph.add_edge(START, "intake")

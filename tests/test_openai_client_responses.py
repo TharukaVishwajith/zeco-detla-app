@@ -73,9 +73,10 @@ class OpenAIClientResponseTests(unittest.TestCase):
             safety_assessment={"escalate_immediately": False},
         )
 
-        self.assertIn("I can create the support ticket for you.", response_text)
-        self.assertIn("If you have any of these additional details", response_text)
-        self.assertIn("If not, tell me and I will proceed with the information already gathered.", response_text)
+        self.assertIn("## Support Ticket Details", response_text)
+        self.assertIn("I am ready to create the support ticket.", response_text)
+        self.assertIn("If available, please send these remaining details", response_text)
+        self.assertIn("If you do not have them, tell me and I will continue with the information already gathered.", response_text)
 
     def test_grounded_fallback_with_docs_uses_simple_step_format(self):
         classification = IntentClassification(

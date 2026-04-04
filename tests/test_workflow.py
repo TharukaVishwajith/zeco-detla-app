@@ -37,30 +37,30 @@ def build_fake_evidence_collection_response(
     if safety_assessment.get("escalate_immediately"):
         return (
             "## Immediate Safety Escalation\n\n"
-            "A safety hazard was detected. Do not continue operating the equipment.\n\n"
+            "A safety hazard was detected. Please do not continue operating the equipment.\n\n"
             f"{progress_text}"
-            "I can help create the support ticket.\n\n"
-            "If you have any of these additional details, send them in one reply:\n"
+            "I am preparing the support ticket now.\n\n"
+            "If available, please send these remaining details:\n"
             f"{field_list}\n\n"
-            "If not, tell me and I will proceed with the information already gathered."
+            "If you do not have them, tell me and I will continue with the information already gathered."
         )
     if support_scope_status == "unsupported":
         return (
             "## Unsupported Site Escalation\n\n"
-            "This site is outside Delta AI support scope.\n\n"
+            "This site is outside Delta AI support scope and needs customer service review.\n\n"
             f"{progress_text}"
-            "I can still help collect what is needed for the escalation ticket.\n\n"
-            "If you have any of these additional details, send them in one reply:\n"
+            "I can still collect a few details for the escalation ticket.\n\n"
+            "If available, please send these remaining details:\n"
             f"{field_list}\n\n"
-            "If not, tell me and I will proceed with the information already gathered."
+            "If you do not have them, tell me and I will continue with the information already gathered."
         )
     return (
-        "## Ticket Information Needed\n\n"
+        "## Support Ticket Details\n\n"
         f"{progress_text}"
-        "I can create the support ticket for you.\n\n"
-        "If you have any of these additional details, send them in one reply:\n"
+        "I am ready to create the support ticket.\n\n"
+        "If available, please send these remaining details:\n"
         f"{field_list}\n\n"
-        "If not, tell me and I will proceed with the information already gathered."
+        "If you do not have them, tell me and I will continue with the information already gathered."
     )
 
 
@@ -220,6 +220,24 @@ class FakeLLMClient:
             "Our customer service team will review the case and provide further assistance."
         )
 
+    def generate_evidence_collection_response(
+        self,
+        *,
+        request,
+        classification,
+        history=None,
+        merged_evidence,
+        missing_fields,
+        support_scope_status,
+        safety_assessment,
+    ):
+        return build_fake_evidence_collection_response(
+            merged_evidence=merged_evidence,
+            missing_fields=missing_fields,
+            support_scope_status=support_scope_status,
+            safety_assessment=safety_assessment,
+        )
+
     def create_embedding(self, text, dimensions=None):
         return None
 
@@ -360,7 +378,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "evidence_collection")
         self.assertIn("serial_number", state["missing_fields"])
         self.assertEqual(state["next_action"], "collect_evidence")
-        self.assertIn("I can help create the support ticket", state["response_text"])
+        self.assertIn("I am preparing the support ticket now.", state["response_text"])
         self.assertNotIn("## Evidence Required", state["response_text"])
 
     def test_escalation_with_complete_evidence_creates_ticket(self):
@@ -422,7 +440,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "evidence_collection")
         self.assertEqual(state["support_scope_status"], "unsupported")
         self.assertNotIn("retrieved_docs", state)
-        self.assertIn("I can still help collect what is needed for the escalation ticket.", state["response_text"])
+        self.assertIn("I can still collect a few details for the escalation ticket.", state["response_text"])
 
     def test_message_only_unsupported_site_skips_troubleshooting(self):
         request = ChatMessageRequest(

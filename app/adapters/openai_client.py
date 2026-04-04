@@ -263,6 +263,54 @@ class OpenAIClient:
             logger.warning("OpenAI ticket intro generation failed, using fallback: %s", exc)
             return fallback
 
+    def generate_evidence_collection_response(
+        self,
+        *,
+        request: ChatMessageRequest,
+        classification: IntentClassification,
+        history: list[ConversationMessage] | None = None,
+        merged_evidence: EvidencePack,
+        missing_fields: list[str],
+        support_scope_status: str | None,
+        safety_assessment: dict,
+    ) -> str:
+        history = history or []
+        fallback = self._fallback_evidence_collection_response(
+            merged_evidence=merged_evidence,
+            missing_fields=missing_fields,
+            support_scope_status=support_scope_status,
+            safety_assessment=safety_assessment,
+        )
+        if not self.client:
+            return fallback
+
+        prompt = self._load_prompt("evidence_collection_prompt.txt")
+        provided_labels = sorted(humanize_evidence_field(name) for name in merged_evidence.provided_fields())
+        missing_labels = [humanize_evidence_field(name) for name in missing_fields]
+        user_prompt = (
+            f"Conversation history (oldest first):\n{self._format_history(history)}\n\n"
+            f"Current user message:\n{request.message}\n\n"
+            f"Classification:\n{classification.model_dump_json()}\n\n"
+            f"Merged evidence so far:\n{merged_evidence.model_dump_json()}\n\n"
+            f"Already collected evidence labels:\n{json.dumps(provided_labels)}\n\n"
+            f"Remaining missing core evidence labels:\n{json.dumps(missing_labels)}\n\n"
+            f"Support scope status:\n{support_scope_status or 'unknown'}\n\n"
+            f"Immediate safety escalation:\n{json.dumps(bool(safety_assessment.get('escalate_immediately')))}\n\n"
+            f"Safety escalation reason:\n{safety_assessment.get('reason') or 'none'}\n\n"
+            "Return Markdown only."
+        )
+
+        try:
+            response_text = self._invoke_agent_text(
+                agent_name=TROUBLESHOOTING_AGENT_NAME,
+                system_prompt=prompt,
+                user_prompt=user_prompt,
+            ).strip()
+            return response_text or fallback
+        except Exception as exc:  # pragma: no cover - network/API failure path
+            logger.warning("OpenAI evidence collection generation failed, using fallback: %s", exc)
+            return fallback
+
     def _grounded_fallback_response(
         self,
         message: str,
@@ -371,30 +419,30 @@ class OpenAIClient:
         if safety_assessment.get("escalate_immediately"):
             return (
                 "## Immediate Safety Escalation\n\n"
-                "A safety hazard was detected. Do not continue operating the equipment.\n\n"
+                "A safety hazard was detected. Please do not continue operating the equipment.\n\n"
                 f"{progress_text}"
-                "I can help create the support ticket.\n\n"
-                "If you have any of these additional details, send them in one reply:\n"
+                "I am preparing the support ticket now.\n\n"
+                "If available, please send these remaining details:\n"
                 f"{field_list}\n\n"
-                "If not, tell me and I will proceed with the information already gathered."
+                "If you do not have them, tell me and I will continue with the information already gathered."
             )
         if support_scope_status == "unsupported":
             return (
                 "## Unsupported Site Escalation\n\n"
-                "This site is outside Delta AI support scope.\n\n"
+                "This site is outside Delta AI support scope and needs customer service review.\n\n"
                 f"{progress_text}"
-                "I can still help collect what is needed for the escalation ticket.\n\n"
-                "If you have any of these additional details, send them in one reply:\n"
+                "I can still collect a few details for the escalation ticket.\n\n"
+                "If available, please send these remaining details:\n"
                 f"{field_list}\n\n"
-                "If not, tell me and I will proceed with the information already gathered."
+                "If you do not have them, tell me and I will continue with the information already gathered."
             )
         return (
-            "## Ticket Information Needed\n\n"
+            "## Support Ticket Details\n\n"
             f"{progress_text}"
-            "I can create the support ticket for you.\n\n"
-            "If you have any of these additional details, send them in one reply:\n"
+            "I am ready to create the support ticket.\n\n"
+            "If available, please send these remaining details:\n"
             f"{field_list}\n\n"
-            "If not, tell me and I will proceed with the information already gathered."
+            "If you do not have them, tell me and I will continue with the information already gathered."
         )
 
     def _normalize_evidence_collection_response_text(
