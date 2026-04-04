@@ -104,6 +104,7 @@ class TroubleshootingResponse(BaseModel):
     response_text: str
     citations: list[str] = Field(default_factory=list)
     next_action: TroubleshootingAction
+    counts_as_troubleshooting_round: bool = False
 
 
 class ConversationMessage(BaseModel):
@@ -121,6 +122,8 @@ class ConversationMessage(BaseModel):
     support_scope_status: SupportScopeStatus | None = None
     unsupported_reason: UnsupportedReason | None = None
     escalation_active: bool | None = None
+    counts_as_troubleshooting_round: bool | None = None
+    troubleshooting_rounds: int | None = None
     evidence_snapshot: EvidencePack | None = None
 
 

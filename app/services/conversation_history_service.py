@@ -37,6 +37,8 @@ class ConversationHistoryService:
         next_action: str,
         system_message: str | None = None,
         escalation_active: bool | None = None,
+        counts_as_troubleshooting_round: bool | None = None,
+        troubleshooting_rounds: int | None = None,
         evidence_snapshot: dict | None = None,
         conversation_state=None,
     ) -> None:
@@ -62,6 +64,8 @@ class ConversationHistoryService:
                 support_scope_status=classification.support_scope_status,
                 unsupported_reason=classification.unsupported_reason,
                 escalation_active=escalation_active,
+                counts_as_troubleshooting_round=counts_as_troubleshooting_round,
+                troubleshooting_rounds=troubleshooting_rounds,
                 evidence_snapshot=evidence_snapshot,
             ),
         ]

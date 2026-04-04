@@ -60,6 +60,7 @@ class OpenAIClientResponseTests(unittest.TestCase):
         )
 
         self.assertEqual(response.next_action, TroubleshootingAction.continue_troubleshooting)
+        self.assertTrue(response.counts_as_troubleshooting_round)
         self.assertIn("## First, check the E031 condition", response.response_text)
         self.assertIn("1. Confirm the device is powered", response.response_text)
         self.assertNotIn("Reply with the exact display text or LED state after these checks.", response.response_text)
@@ -72,9 +73,10 @@ class OpenAIClientResponseTests(unittest.TestCase):
             safety_assessment={"escalate_immediately": False},
         )
 
-        self.assertIn("I can create the support ticket for you.", response_text)
-        self.assertIn("If you have any of these additional details", response_text)
-        self.assertIn("If not, tell me and I will proceed with the information already gathered.", response_text)
+        self.assertIn("## Support Ticket Details", response_text)
+        self.assertIn("I am ready to create the support ticket.", response_text)
+        self.assertIn("If available, please send these remaining details", response_text)
+        self.assertIn("If you do not have them, tell me and I will continue with the information already gathered.", response_text)
 
     def test_grounded_fallback_with_docs_uses_simple_step_format(self):
         classification = IntentClassification(
@@ -100,6 +102,7 @@ class OpenAIClientResponseTests(unittest.TestCase):
 
         self.assertEqual(response.next_action, TroubleshootingAction.continue_troubleshooting)
         self.assertEqual(response.citations, ["doc-1"])
+        self.assertTrue(response.counts_as_troubleshooting_round)
         self.assertIn("## First, check the E031 condition", response.response_text)
         self.assertIn("1. Check the display, acknowledge the alarm, and run the restart sequence.", response.response_text)
         self.assertNotIn("Reply with the exact display message or LED state after this step.", response.response_text)
@@ -109,8 +112,31 @@ class OpenAIClientResponseTests(unittest.TestCase):
 
         self.assertEqual(response.next_action, TroubleshootingAction.resolved)
         self.assertEqual(response.citations, [])
+        self.assertFalse(response.counts_as_troubleshooting_round)
         self.assertIn("Glad to hear the issue is resolved", response.response_text)
         self.assertNotIn("support ticket", response.response_text.lower())
+
+    def test_fallback_ticket_creation_intro_mentions_escalation_and_ticket(self):
+        request = ChatMessageRequest(message="The inverter still fails after several attempts")
+        classification = IntentClassification(
+            intent=IntentType.troubleshoot,
+            device_type=DeviceType.inverter,
+            support_scope_status=SupportScopeStatus.supported,
+        )
+
+        response_text = self.client.generate_ticket_creation_intro(
+            request=request,
+            classification=classification,
+            history=[],
+            troubleshooting_rounds=5,
+            support_scope_status=SupportScopeStatus.supported.value,
+            escalate_immediately=False,
+            force_ticket_creation=True,
+        )
+
+        self.assertIn("## Support Escalation", response_text)
+        self.assertIn("troubleshooting steps", response_text.lower())
+        self.assertIn("support ticket", response_text.lower())
 
 
 if __name__ == "__main__":

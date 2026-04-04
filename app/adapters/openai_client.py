@@ -204,7 +204,112 @@ class OpenAIClient:
             ),
             citations=[],
             next_action=TroubleshootingAction.resolved,
+            counts_as_troubleshooting_round=False,
         )
+
+    def generate_ticket_creation_intro(
+        self,
+        *,
+        request: ChatMessageRequest,
+        classification: IntentClassification,
+        history: list[ConversationMessage] | None = None,
+        troubleshooting_rounds: int = 0,
+        support_scope_status: str | None = None,
+        escalate_immediately: bool = False,
+        force_ticket_creation: bool = False,
+    ) -> str:
+        history = history or []
+        fallback = self._fallback_ticket_creation_intro(
+            request=request,
+            classification=classification,
+            history=history,
+            troubleshooting_rounds=troubleshooting_rounds,
+            support_scope_status=support_scope_status,
+            escalate_immediately=escalate_immediately,
+            force_ticket_creation=force_ticket_creation,
+        )
+        if not self.client:
+            return fallback
+
+        prompt = self._load_prompt("ticket_intro_prompt.txt")
+        trigger = self._ticket_intro_trigger(
+            request=request,
+            classification=classification,
+            troubleshooting_rounds=troubleshooting_rounds,
+            support_scope_status=support_scope_status,
+            escalate_immediately=escalate_immediately,
+            force_ticket_creation=force_ticket_creation,
+        )
+        user_prompt = (
+            f"Conversation history (oldest first):\n{self._format_history(history)}\n\n"
+            f"Current user message:\n{request.message}\n\n"
+            f"Classification:\n{classification.model_dump_json()}\n\n"
+            f"Troubleshooting rounds completed:\n{troubleshooting_rounds}\n\n"
+            f"Support scope status:\n{support_scope_status or 'unknown'}\n\n"
+            f"Immediate safety escalation:\n{json.dumps(escalate_immediately)}\n\n"
+            f"Forced ticket creation:\n{json.dumps(force_ticket_creation)}\n\n"
+            f"Escalation trigger:\n{trigger}\n\n"
+            "Return Markdown only."
+        )
+
+        try:
+            response_text = self._invoke_agent_text(
+                agent_name=TROUBLESHOOTING_AGENT_NAME,
+                system_prompt=prompt,
+                user_prompt=user_prompt,
+            ).strip()
+            return response_text or fallback
+        except Exception as exc:  # pragma: no cover - network/API failure path
+            logger.warning("OpenAI ticket intro generation failed, using fallback: %s", exc)
+            return fallback
+
+    def generate_evidence_collection_response(
+        self,
+        *,
+        request: ChatMessageRequest,
+        classification: IntentClassification,
+        history: list[ConversationMessage] | None = None,
+        merged_evidence: EvidencePack,
+        missing_fields: list[str],
+        support_scope_status: str | None,
+        safety_assessment: dict,
+    ) -> str:
+        history = history or []
+        fallback = self._fallback_evidence_collection_response(
+            merged_evidence=merged_evidence,
+            missing_fields=missing_fields,
+            support_scope_status=support_scope_status,
+            safety_assessment=safety_assessment,
+        )
+        if not self.client:
+            return fallback
+
+        prompt = self._load_prompt("evidence_collection_prompt.txt")
+        provided_labels = sorted(humanize_evidence_field(name) for name in merged_evidence.provided_fields())
+        missing_labels = [humanize_evidence_field(name) for name in missing_fields]
+        user_prompt = (
+            f"Conversation history (oldest first):\n{self._format_history(history)}\n\n"
+            f"Current user message:\n{request.message}\n\n"
+            f"Classification:\n{classification.model_dump_json()}\n\n"
+            f"Merged evidence so far:\n{merged_evidence.model_dump_json()}\n\n"
+            f"Already collected evidence labels:\n{json.dumps(provided_labels)}\n\n"
+            f"Remaining missing core evidence labels:\n{json.dumps(missing_labels)}\n\n"
+            f"Support scope status:\n{support_scope_status or 'unknown'}\n\n"
+            f"Immediate safety escalation:\n{json.dumps(bool(safety_assessment.get('escalate_immediately')))}\n\n"
+            f"Safety escalation reason:\n{safety_assessment.get('reason') or 'none'}\n\n"
+            "Return Markdown only."
+        )
+
+        try:
+            response_text = self._invoke_agent_text(
+                agent_name=TROUBLESHOOTING_AGENT_NAME,
+                system_prompt=prompt,
+                user_prompt=user_prompt,
+            ).strip()
+            return response_text or fallback
+        except Exception as exc:  # pragma: no cover - network/API failure path
+            logger.warning("OpenAI evidence collection generation failed, using fallback: %s", exc)
+            return fallback
 
     def _grounded_fallback_response(
         self,
@@ -229,6 +334,7 @@ class OpenAIClient:
                 response_text=response_text,
                 citations=[],
                 next_action=TroubleshootingAction.continue_troubleshooting,
+                counts_as_troubleshooting_round=True,
             )
 
         primary_doc = retrieved_docs[0]
@@ -250,7 +356,48 @@ class OpenAIClient:
             response_text=response_text,
             citations=[doc.doc_id for doc in retrieved_docs[:3]],
             next_action=TroubleshootingAction.continue_troubleshooting,
+            counts_as_troubleshooting_round=True,
         )
+
+    def _fallback_ticket_creation_intro(
+        self,
+        *,
+        request: ChatMessageRequest,
+        classification: IntentClassification,
+        history: list[ConversationMessage],
+        troubleshooting_rounds: int,
+        support_scope_status: str | None,
+        escalate_immediately: bool,
+        force_ticket_creation: bool,
+    ) -> str:
+        heading = "## Support Escalation"
+        opening = "I will create a support ticket for you now."
+        follow_up = "Our customer service team will review the case and provide further assistance."
+
+        if escalate_immediately:
+            heading = "## Immediate Safety Escalation"
+            opening = "For safety, I need to escalate this issue right away and create a support ticket for you."
+            follow_up = "Please do not continue operating the equipment while the case is being reviewed."
+        elif support_scope_status == SupportScopeStatus.unsupported.value:
+            heading = "## Support Escalation"
+            opening = "This case needs to be escalated, and I will create a support ticket for you now."
+            follow_up = "The customer service team can review the site details and advise on the next step."
+        elif force_ticket_creation or troubleshooting_rounds >= 5:
+            opening = (
+                "I'm sorry the troubleshooting steps didn't resolve the issue."
+                " I appreciate the time you have spent working through them."
+            )
+            follow_up = (
+                "Since the problem is still present, I will escalate this to our customer service team"
+                " and create a support ticket for you now."
+            )
+        elif request.request_ticket or classification.intent == IntentType.escalate:
+            opening = "I understand you want this escalated, and I will create a support ticket for you now."
+        elif history:
+            opening = "The issue still needs further assistance, and I will create a support ticket for you now."
+
+        closing = "Please hold on for a moment while I submit the support ticket."
+        return f"{heading}\n\n{opening}\n\n{follow_up}\n\n{closing}"
 
     def _fallback_evidence_collection_response(
         self,
@@ -272,30 +419,30 @@ class OpenAIClient:
         if safety_assessment.get("escalate_immediately"):
             return (
                 "## Immediate Safety Escalation\n\n"
-                "A safety hazard was detected. Do not continue operating the equipment.\n\n"
+                "A safety hazard was detected. Please do not continue operating the equipment.\n\n"
                 f"{progress_text}"
-                "I can help create the support ticket.\n\n"
-                "If you have any of these additional details, send them in one reply:\n"
+                "I am preparing the support ticket now.\n\n"
+                "If available, please send these remaining details:\n"
                 f"{field_list}\n\n"
-                "If not, tell me and I will proceed with the information already gathered."
+                "If you do not have them, tell me and I will continue with the information already gathered."
             )
         if support_scope_status == "unsupported":
             return (
                 "## Unsupported Site Escalation\n\n"
-                "This site is outside Delta AI support scope.\n\n"
+                "This site is outside Delta AI support scope and needs customer service review.\n\n"
                 f"{progress_text}"
-                "I can still help collect what is needed for the escalation ticket.\n\n"
-                "If you have any of these additional details, send them in one reply:\n"
+                "I can still collect a few details for the escalation ticket.\n\n"
+                "If available, please send these remaining details:\n"
                 f"{field_list}\n\n"
-                "If not, tell me and I will proceed with the information already gathered."
+                "If you do not have them, tell me and I will continue with the information already gathered."
             )
         return (
-            "## Ticket Information Needed\n\n"
+            "## Support Ticket Details\n\n"
             f"{progress_text}"
-            "I can create the support ticket for you.\n\n"
-            "If you have any of these additional details, send them in one reply:\n"
+            "I am ready to create the support ticket.\n\n"
+            "If available, please send these remaining details:\n"
             f"{field_list}\n\n"
-            "If not, tell me and I will proceed with the information already gathered."
+            "If you do not have them, tell me and I will continue with the information already gathered."
         )
 
     def _normalize_evidence_collection_response_text(
@@ -506,6 +653,11 @@ class OpenAIClient:
                 metadata.append(f"next_action={message.next_action.value}")
             if message.escalation_active is not None:
                 metadata.append(f"escalation_active={'true' if message.escalation_active else 'false'}")
+            if message.counts_as_troubleshooting_round is not None:
+                metadata.append(
+                    "counts_as_troubleshooting_round="
+                    f"{'true' if message.counts_as_troubleshooting_round else 'false'}"
+                )
             label = message.role.value.upper()
             if metadata:
                 label = f"{label} [{' '.join(metadata)}]"
@@ -534,6 +686,47 @@ class OpenAIClient:
         result = agent.invoke({"messages": [{"role": "user", "content": user_prompt}]})
         content = self._extract_agent_text(result)
         return self._parse_json_payload(content)
+
+    def _invoke_agent_text(self, agent_name: str, system_prompt: str, user_prompt: str) -> str:
+        if not self.api_key or not create_agent or not ChatOpenAI:
+            return ""
+
+        model_name = self.agent_model_config.model_for(agent_name)
+        cache_key = (agent_name, system_prompt)
+        agent = self._agent_cache.get(cache_key)
+        if agent is None:
+            chat_model = ChatOpenAI(model=model_name, api_key=self.api_key, temperature=0)
+            agent = create_agent(
+                model=chat_model,
+                tools=[],
+                system_prompt=system_prompt,
+            )
+            self._agent_cache[cache_key] = agent
+
+        result = agent.invoke({"messages": [{"role": "user", "content": user_prompt}]})
+        return self._extract_agent_text(result).strip()
+
+    def _ticket_intro_trigger(
+        self,
+        *,
+        request: ChatMessageRequest,
+        classification: IntentClassification,
+        troubleshooting_rounds: int,
+        support_scope_status: str | None,
+        escalate_immediately: bool,
+        force_ticket_creation: bool,
+    ) -> str:
+        if escalate_immediately:
+            return "safety_escalation"
+        if support_scope_status == SupportScopeStatus.unsupported.value:
+            return "unsupported_scope"
+        if force_ticket_creation or troubleshooting_rounds >= 5:
+            return "troubleshooting_limit_reached"
+        if request.request_ticket:
+            return "user_requested_ticket"
+        if classification.intent == IntentType.escalate:
+            return "system_escalation"
+        return "ticket_creation"
 
     def _extract_agent_text(self, result: dict) -> str:
         messages = result.get("messages", []) if isinstance(result, dict) else []

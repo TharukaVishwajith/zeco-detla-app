@@ -30,8 +30,8 @@ def build_workflow(dependencies: WorkflowDependencies):
         "troubleshooting",
         build_troubleshooting_node(dependencies.llm_client, dependencies.validation_service),
     )
-    graph.add_node("evidence_collection", build_evidence_collection_node())
-    graph.add_node("ticket_creation", build_ticket_creation_node(dependencies.ticket_service))
+    graph.add_node("evidence_collection", build_evidence_collection_node(dependencies.llm_client))
+    graph.add_node("ticket_creation", build_ticket_creation_node(dependencies.ticket_service, dependencies.llm_client))
 
     graph.add_edge(START, "intake")
     graph.add_conditional_edges(
@@ -59,6 +59,7 @@ def build_workflow(dependencies: WorkflowDependencies):
         {
             "end": END,
             "evidence_collection": "evidence_collection",
+            "ticket_creation": "ticket_creation",
         },
     )
     graph.add_conditional_edges(
@@ -96,6 +97,8 @@ def _route_after_intake(state: SupportGraphState) -> str:
 
 
 def _route_after_troubleshooting(state: SupportGraphState) -> str:
+    if state.get("force_ticket_creation"):
+        return "ticket_creation"
     next_action = state.get("next_action")
     if next_action in {"collect_evidence", "escalate"}:
         return "evidence_collection"
